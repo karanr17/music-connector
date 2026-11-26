@@ -4,9 +4,40 @@ A personal music recommender that runs on your Mac. Full songs are embedded with
 [MuQ-MuLan](https://huggingface.co/OpenMuQ/MuQ-MuLan-large) and stored in Postgres + pgvector.
 Playlists are built from your taste clusters plus exploration slots for indie, older and random music.
 
-**Status: v1.** Embeds local files, imports Google Takeout history, records feedback by hand and
-builds playlists in the terminal. Still to come: the Brave extension (live capture while you listen),
-writing playlists to YouTube, and the Thompson-sampling preference model (v2).
+**Status: v1 + live capture.** Embeds local files, and also songs while you listen in Brave
+(YouTube Music / YouTube). Imports Google Takeout history and builds playlists in the terminal.
+Still to come: writing playlists to YouTube, and the Thompson-sampling preference model (v2).
+
+## Live capture in Brave
+
+1. Start the server: `uv run mc serve` (listens on `ws://127.0.0.1:8765`, loads the model once).
+2. Go to `brave://extensions`, turn on **Developer mode**, click **Load unpacked**, and choose
+   the `extension/` folder. Pin the "Music Connector" icon.
+3. Open music.youtube.com (or a music video on youtube.com) and **click the icon**. The badge
+   shows `ON` when audio is streaming to the server, and `…` while it waits for `mc serve`.
+   Click again to stop. You need to click once per tab after each browser restart, because
+   Chrome only allows tab capture after an explicit click.
+
+What happens while you listen:
+
+- The tab's audio is cut into 10 s windows and embedded as you listen. No audio is written to
+  disk. When a track ends, the song vector, its window vectors and the fraction of the song you
+  heard are saved. If you listen again and hear more of it, the vector is replaced.
+- Listen events: **complete** (≥ 80% heard or reached the end; a repeat also logs **replay**),
+  **skip** (moved on before 30 s), **play** (anything in between). 👍/👎 clicks in the player
+  are logged as **like**/**dislike**.
+- Pauses, buffering, seeks and ads are excluded, and so are silent windows. YouTube's volume
+  slider and loudness normalisation are undone, so live and file embeddings match: a live
+  capture at 50% volume scored 0.9999 cosine against the same file.
+- youtube.com is captured only when you click the icon on that tab, because most of YouTube
+  isn't music.
+
+`scripts/simulate_extension.py` replays local files through the same protocol to test the
+server without a browser.
+
+Limits: only listening in Brave on this Mac is captured, not on your phone. The like-button
+selectors depend on YouTube's current page markup and may need updating when it changes. Up to
+~0.1 s of the previous song can leak into the first window of the next.
 
 ## Setup
 
@@ -29,6 +60,7 @@ uv run mc similar "Somebody Else"
 uv run mc search "dark slow R&B with heavy reverb"     # describe a sound in words
 uv run mc taste                                        # your taste clusters
 uv run mc recommend --size 25
+uv run mc serve                                        # live capture from the Brave extension
 ```
 
 `--pool` tags songs for the playlist's exploration slots: `indie`, `classic` (older decades), `new`.

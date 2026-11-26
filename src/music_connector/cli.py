@@ -199,5 +199,21 @@ def recommend(size: int = 25):
     console.print(t)
 
 
+@app.command()
+def serve(host: str = "127.0.0.1", port: int = 8765):
+    """Receive live audio from the Brave extension and embed songs as you listen."""
+    import asyncio
+    import logging
+
+    from .server import serve_forever
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+    logging.getLogger("websockets").setLevel(logging.WARNING)
+    try:
+        asyncio.run(serve_forever(host, port))
+    except KeyboardInterrupt:
+        pass
+
+
 def main():
     app()
