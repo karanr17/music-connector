@@ -41,12 +41,28 @@ selectors depend on YouTube's current page markup and may need updating when it 
 
 ## Setup
 
-Requires Docker, [uv](https://docs.astral.sh/uv/) and ffmpeg (`brew install uv ffmpeg`).
+Requires macOS or Linux with Docker, [uv](https://docs.astral.sh/uv/) and ffmpeg
+(`brew install uv ffmpeg`). uv installs Python 3.12 itself if needed. The model runs on Apple
+Silicon (MPS), CUDA or CPU; the timings below are for an M3 Pro.
 
 ```sh
-docker compose up -d --wait   # Postgres 17 + pgvector on localhost:5433
+git clone <repo-url> music-connector && cd music-connector
+cp .env.example .env          # optional: change MC_DB_PORT if 5433 is taken
+docker compose up -d --wait   # Postgres 17 + pgvector on localhost:5433; creates the schema
 uv sync
-uv run mc bench               # MuQ-MuLan speed on this machine (downloads the model on first run)
+uv run mc songs               # checks the database connection: "Embedded songs (0 of 0)"
+uv run mc bench               # MuQ-MuLan speed on this machine (downloads ~2.5 GB of weights once)
+```
+
+Every setting has a default, so `.env` is optional. docker compose reads it automatically; to
+point `mc` at a different port or database, export the variables or run
+`uv run --env-file .env mc ...`. See `.env.example` for the list.
+
+Tests need neither the model nor the database:
+
+```sh
+uv run pytest
+uv run ruff check .
 ```
 
 ## Usage
@@ -107,6 +123,19 @@ taste once their audio is embedded.
 
 Settings are in `src/music_connector/config.py`.
 
+## Privacy
+
+Everything stays on your machine. Audio is decoded in memory and never written to disk; your
+listening history, ratings and embeddings live only in the local Postgres volume; the server
+binds to 127.0.0.1 and only accepts connections from the extension or local scripts. Nothing is
+sent anywhere except the one-time model download from Hugging Face.
+
+This repository contains no listening data: no Takeout exports, no event history, no audio. The
+`.gitignore` excludes `.env`, `watch-history*.json`, Takeout folders, audio files and local data
+directories so they can't be committed by accident.
+
 ## Licences
 
-MuQ-MuLan weights are licensed CC BY-NC 4.0 (non-commercial). This project is for personal use.
+The code is MIT-licensed (see `LICENSE`). The MuQ-MuLan weights it downloads are licensed
+**CC BY-NC 4.0 (non-commercial)** and are not distributed here; see `NOTICE`. Anything that runs
+the model, including this project, is limited to non-commercial use.
