@@ -7,7 +7,9 @@ Playlists are built from your taste clusters plus exploration slots for indie, o
 **Status: v2 + live capture.** Embeds local files, and also songs while you listen in Brave
 (YouTube Music / YouTube). Imports Google Takeout history and builds playlists in the terminal,
 scored by a Thompson-sampling preference model once there is enough feedback (see
-[v2](#v2-thompson-sampling-preference-model)).
+[v2](#v2-thompson-sampling-preference-model)). Also analyses songs for the visual music player:
+beats, energy, sections and audio descriptors, as a versioned JSON contract
+([analysis sidecar](#analysis-sidecar-songanalysis-v1)).
 
 ## Live capture in Brave
 
@@ -77,10 +79,145 @@ uv run mc similar "Somebody Else"
 uv run mc search "dark slow R&B with heavy reverb"     # describe a sound in words
 uv run mc taste                                        # your taste clusters
 uv run mc recommend --size 25                          # --seed N fixes the Thompson draw
-uv run mc serve                                        # live capture from the Brave extension
+uv run mc serve                                        # live capture + the /analyze API
+uv run mc analyze song.mp3 -o song.analysis.json       # SongAnalysis v1 for the visual player
 ```
 
 `--pool` tags songs for the playlist's exploration slots: `indie`, `classic` (older decades), `new`.
+
+## Analysis sidecar (SongAnalysis v1)
+
+The visual music player needs to know where the beats, the sections and the repeats are, and
+roughly what a song sounds like. `mc analyze` and `mc serve`'s `/analyze` produce that as a
+`SongAnalysis` JSON file. The contract is owned by this repo: Pydantic models in
+`src/music_connector/analysis/schema.py`, exported as JSON Schema to
+[`schema/song-analysis.v1.schema.json`](schema/song-analysis.v1.schema.json)
+(`uv run mc schema -o schema/song-analysis.v1.schema.json`; a test fails if it is stale).
+
+```
+visual music player                                   music-connector (this repo, Mac only)
+ ├─ on track load ── POST /analyze (bytes or path) ─►  mc serve on 127.0.0.1:8765
+ │                                                      ├─ ffmpeg → 24 kHz mono
+ │                                                      ├─ librosa: tempo, beats, downbeats,
+ │                                                      │  onsets, RMS + 3 bands at 10 Hz
+ │                                                      ├─ MuQ-MuLan: 10 s windows, 5 s hop
+ │                                                      ├─ novelty → boundaries on downbeats,
+ │                                                      │  window embeddings → A / B / A′ labels
+ │  ◄────────────── SongAnalysis JSON ─────────────────┤  calibrated text descriptors
+ └─ no server? load <song>.analysis.json               └─ cache: ~/.cache/music-connector/analysis
+    (examples/ has three for the hosted demo)              keyed by SHA-256 of the audio bytes
+```
+
+```sh
+uv run mc analyze song.mp3                       # writes song.analysis.json beside it
+uv run mc analyze song.mp3 -o - --pretty         # to stdout
+uv run mc analyze song.mp3 --windows --nearest 5 # + per-window descriptors, 5 closest library songs
+
+uv run mc serve                                  # then, from the player or a script:
+curl -X POST 'http://127.0.0.1:8765/analyze?name=song.mp3' -H 'Content-Type: audio/mpeg' --data-binary @song.mp3
+curl -X POST http://127.0.0.1:8765/analyze -H 'Content-Type: application/json' -d '{"path": "/Users/me/Music/song.mp3"}'
+curl 'http://127.0.0.1:8765/analyze?path=/Users/me/Music/song.mp3&windows=1'
+curl http://127.0.0.1:8765/health                # {"ok": true, "schemaVersion": "1.0", ...}
+```
+
+Options (query string, or JSON body fields): `windows=1`, `nearest=N`, `refresh=1` (ignore the
+cache), `name=` (file name recorded for byte uploads). Errors are JSON `{"error": ...}`: 400 bad
+request, 403 forbidden origin or host, 404 no such file, 422 audio that won't decode.
+
+**Who can call it.** The server binds to 127.0.0.1. `/analyze` and `/health` accept requests with
+no `Origin` (curl, scripts) or from the player's dev server, `http://localhost:5173` and
+`http://127.0.0.1:5173`, with CORS headers for those origins only. Add more with
+`MC_ALLOWED_ORIGINS=http://localhost:4173,...`. Requests whose `Host` isn't localhost are refused
+(DNS-rebinding guard). The WebSocket at `/` still takes only the extension or local scripts, as
+before. A path request may name any audio file the server can read; the response contains the
+analysis, never the audio.
+
+### What's in the file
+
+| Field | What | Source |
+|---|---|---|
+| `schemaVersion` | `"1.0"`. Minor versions only add optional fields; readers must ignore unknown fields. A breaking change gets a new major version and schema file. | |
+| `source` | `sha256` of the file bytes (the cache key), base `fileName`, `durationS`, `sampleRate` | |
+| `tempo` | `bpm`, `confidence` (onset autocorrelation at the beat period; below ~0.45 the tempo may be 2× off), `beatsPerBar` (always 4 in v1) | librosa |
+| `beats`, `downbeats`, `onsets` | times in seconds | librosa; downbeat phase from bass onsets + chord changes |
+| `energy` | `frameRate` (10 Hz), `rms`, `low` (20–250 Hz), `mid` (250–4k), `high` (4–12k), each 0..1 within the song over a 48 dB range; `loudnessDb` for the absolute level | STFT |
+| `segments[]` | `start`, `end`, `label` (`A`, `B`, `A′`), `group` (`A`), `variant` (1 = ′), `similarity` to the group's first occurrence, `boundaryStrength`, mean `energy`, top-2 `descriptors` per axis | novelty + MuLan |
+| `descriptors` | per axis (`genre`, `mood`, `instruments`, `vocals`, `texture`): top-3 `{label, cos, z}` | MuLan text prompts, calibrated |
+| `windows` | only with `windows=1`: start times and top-1 descriptors per 10 s window | MuLan |
+| `nearest` | only with `nearest=N`: closest songs in your library (`songId`, `title`, `artist`, `cosine`) | pgvector |
+
+Tempo, energy and era are deliberately not MuLan descriptors: zero-shot prompts got all three
+wrong on the first probe song, and DSP measures the first two directly. A 4½-minute song is
+~85 KB of JSON (~25 KB gzipped); most of it is the 10 Hz energy curves and onsets.
+
+**Descriptor calibration.** Raw prompt cosines carry per-prompt bias ("male vocals" scores high on
+everything). `z` subtracts each prompt's mean on a reference corpus, shrunk 75% towards the
+axis mean, and divides by the axis's spread. The packaged calibration (`cc-reference-79`) comes
+from 79 CC tracks, none of them in the quality check below. `mc calibrate --from-db` recalibrates
+against your own library's stored embeddings (written to `~/.config/music-connector/`, read-only
+on the database); `mc calibrate <folder>` against any audio folder.
+
+**Cost** (M3 Pro, measured): DSP 0.3–1 s and MuLan 5.5–7.5 s per song (twice the windows of
+`mc ingest` because of the 5 s hop), so ~7 s for a new song; a cached repeat returns in ~5 ms.
+`mc serve` loads the model at start-up (10–16 s); `mc analyze` loads it per run.
+
+### Analysis quality (28 songs)
+
+Measured with `scripts/eval_analysis.py` on audio kept outside the repo (see "Eval audio" below).
+Nothing here was tuned on these songs: segmentation settings and the descriptor shrinkage were
+chosen on a separate 79-track set (25 SALAMI-annotated live recordings for segmentation,
+54 tagged ccMixter tracks for descriptors).
+
+| What | Truth | Result | For scale |
+|---|---|---|---|
+| Section boundaries, 13 songs | SALAMI human annotations (12 live recordings), my own LRC-based marks for Sunflower | **F 0.63** at ±3 s (best of the two annotators) | annotators vs each other 0.82; a boundary every 20 s scores 0.29 |
+| Repeat labels, same 13 songs | same | **pairwise F 0.66** | annotators vs each other 0.70 |
+| Tempo, 13 ccMixter songs with a BPM tag | uploader's BPM | **8 within 4%**, 3 off by 2× (or ⅔), 2 wrong | |
+| Genre, 15 ccMixter songs | uploader tags | top-1 **9/15**, top-3 12/15 (raw cosine: 8/15, 12/15) | 24 genre prompts |
+| Instruments, 11 songs | uploader tags | top-1 **8/11**, top-3 9/11 (raw: 7/11, 9/11) | 19 prompts |
+| Vocals, 12 songs | uploader tags | top-1 **9/12**, top-3 11/12 (raw: 6/12, 11/12) | 6 prompts |
+| "Live recording" texture, 12 live songs | they are all live | top-1 **7/12**, top-3 12/12 (raw: 8/12, 12/12) | 6 prompts |
+
+The misses, honestly:
+- **Over-segmentation.** It finds phrase-level changes humans don't mark as sections: 21
+  segments against 12 on one long jam (Brownfish, F 0.52), 17 against 8 on a string-band tune.
+  Repeated material then shows up as runs of the same label (`CCCC`), which a consumer can merge.
+- **Verse and chorus can share a letter.** On Sunflower the boundaries are right (F 0.86) but the
+  first chorus gets the verse's letter and the second chorus the pre-chorus's (`ABCDCCCD′`
+  against `ABCDECDF`), so pairwise F is only 0.44. The plan's earlier probe already saw verse vs
+  chorus at ~0.91 against ~0.96 for chorus vs chorus; one similarity threshold can't separate
+  that in every song.
+- **Tempo octave errors** on a piano improvisation, a slow latin track and a 73 BPM folk song
+  (all reported at ~2×); two dance tracks were wrong outright (70 and 104 against 134 and 130).
+  `tempo.confidence` is a weak warning: it was ≤ 0.32 on two of these five and ≥ 0.45 on every
+  correct one.
+- **Downbeats are unverified**: there is no downbeat truth in this set. The phase heuristic
+  assumes 4/4.
+- **Descriptors are hints.** A cello-and-marimba ambient piece comes out "orchestral film score",
+  a jazz song "gospel", a reggae song "funk", and the woman singing *Unbury Your Heart* is
+  "male vocals" (female second). Two instrumentals get "choir" or "rap vocals". Full per-prompt
+  z-scoring, the original plan, did *worse* than raw cosines on both sets (it inflates prompts
+  with a narrow spread, like "choir"), hence the 25% shrinkage.
+- The truth is thin: 15 tagged songs, uploader tags are incomplete, and the live recordings are
+  mostly rock/jam bands. Treat these numbers as indicative.
+
+### Eval audio and examples
+
+The audio lives in `~/music-connector-eval-audio` (never in the repo); its `README.md` lists every
+file with its source and licence: 15 CC BY ccMixter tracks, 12 Live Music Archive recordings from
+the SALAMI dataset (non-commercial sharing; no CC licence stated, used locally only), the owner's
+Sunflower test file, and the 79-track `calibration/` set. Re-run the check with:
+
+```sh
+uv run python scripts/eval_analysis.py features ~/music-connector-eval-audio              # model, ~4 min
+uv run python scripts/eval_analysis.py features ~/music-connector-eval-audio/calibration
+uv run python scripts/eval_analysis.py report ~/music-connector-eval-audio                # no model
+uv run python scripts/eval_analysis.py tune ~/music-connector-eval-audio/calibration      # segmentation grid
+```
+
+[`examples/`](examples/) has precomputed analyses of three CC BY songs with published lyrics, for
+the player's hosted demo, and [`examples/ATTRIBUTION.md`](examples/ATTRIBUTION.md) with credits and
+download links. The audio itself is not included.
 
 ## Performance (M3 Pro, 18 GB, measured)
 
@@ -221,9 +358,14 @@ ids, titles or events. The committed plot and JSON come from synthetic data only
 
 ## Privacy
 
-Everything stays on your machine. Audio is decoded in memory and never written to disk; your
-listening history, ratings and embeddings live only in the local Postgres volume; the server
-binds to 127.0.0.1 and only accepts connections from the extension or local scripts. The v2
+Everything stays on your machine. Audio is decoded in memory and never written to disk, with
+one exception: an M4A/MP4 uploaded to `/analyze` whose index sits at the end of the file can't be
+decoded from a pipe, so it goes through a private temp file that is deleted straight away. Your
+listening history, ratings and embeddings live only in the local Postgres volume. The server
+binds to 127.0.0.1; live capture accepts only the extension or local scripts, and `/analyze`
+only local scripts and the player's dev origin. Analyses are cached under
+`~/.cache/music-connector/analysis`; they hold no audio, and library song titles only if you ask
+for `nearest`. The v2
 preference model is refit in memory from the local events table on each `mc recommend` and is
 never saved or sent. Nothing is sent anywhere except the one-time model download from Hugging Face.
 
