@@ -10,10 +10,14 @@
 
   const post = (msg) => window.postMessage({ __musicConnector: true, ...msg }, location.origin);
 
-  function likeStatus() {
+  // Returns null while the like button still belongs to the previous track: after an autoplay
+  // change it keeps the old song's status for a moment, which would read as a fresh like.
+  function likeStatus(videoId) {
     if (SOURCE === 'ytmusic') {
       const el = document.querySelector('ytmusic-player-bar ytmusic-like-button-renderer');
-      return el ? el.getAttribute('like-status') : null;
+      const target = el && el.data && el.data.target && el.data.target.videoId;
+      if (!el || (target && target !== videoId)) return null;
+      return el.getAttribute('like-status');
     }
     if (document.querySelector('like-button-view-model button[aria-pressed="true"]')) return 'LIKE';
     if (document.querySelector('dislike-button-view-model button[aria-pressed="true"]')) return 'DISLIKE';
@@ -25,19 +29,20 @@
     const video = player && player.querySelector('video');
     if (!video || typeof player.getVideoData !== 'function') return null;
     const data = player.getVideoData() || {};
-    const meta = navigator.mediaSession && navigator.mediaSession.metadata;
     const duration = player.getDuration ? player.getDuration() : video.duration;
     return {
       videoId: data.video_id,
-      // getVideoData belongs to the current video; mediaSession can lag a track behind.
-      title: data.title || (meta && meta.title),
-      artist: data.author || (meta && meta.artist),
+      // Only getVideoData is tied to video_id. On a track change its title/author are empty
+      // for a moment while mediaSession and the player bar still show the previous song (or
+      // the ad), so falling back to those labels the new track with the old song's metadata.
+      title: data.title || null,
+      artist: data.author || null,
       duration: Number.isFinite(duration) && duration > 0 ? duration : null,
       position: video.currentTime,
       playing: !video.paused && !video.ended && video.readyState > 2,
       ad: player.classList.contains('ad-showing'),
       volume: video.muted ? 0 : video.volume,
-      like: likeStatus(),
+      like: likeStatus(data.video_id),
     };
   }
 
@@ -52,9 +57,13 @@
     if (s.ad || !s.videoId) return;
 
     if (s.videoId !== last.videoId) {
-      last = { ad: last.ad, videoId: s.videoId, like: s.like };
+      last = { ad: last.ad, videoId: s.videoId, title: s.title, artist: s.artist };
       post({ type: 'track', videoId: s.videoId, title: s.title, artist: s.artist,
              duration: s.duration, position: s.position, source: SOURCE });
+    } else if (s.title && (s.title !== last.title || s.artist !== last.artist)) {
+      last.title = s.title;
+      last.artist = s.artist;
+      post({ type: 'meta', videoId: s.videoId, title: s.title, artist: s.artist });
     }
     if (s.playing !== last.playing || s.duration !== last.duration ||
         Math.abs(s.volume - (last.volume ?? -1)) > 0.01) {
@@ -62,9 +71,10 @@
              duration: s.duration });
       Object.assign(last, { playing: s.playing, volume: s.volume, duration: s.duration });
     }
-    // Only changes count: a song you liked months ago shows LIKE every time it plays.
-    if (s.like !== last.like) {
-      if (s.like === 'LIKE' || s.like === 'DISLIKE') {
+    // Only changes count: a song you liked months ago shows LIKE every time it plays. The
+    // first status seen for a track is just the baseline.
+    if (s.like !== null && s.like !== last.like) {
+      if (last.like !== undefined && (s.like === 'LIKE' || s.like === 'DISLIKE')) {
         post({ type: 'feedback', videoId: s.videoId, kind: s.like.toLowerCase(),
                title: s.title, artist: s.artist, source: SOURCE });
       }

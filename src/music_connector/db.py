@@ -34,6 +34,16 @@ def upsert_song(conn, *, title, artist=None, youtube_id=None, local_path=None,
     ).fetchone()[0]
 
 
+def refresh_song_meta(conn, song_id: int, title: str | None, artist: str | None,
+                      placeholder: str | None = None) -> None:
+    """Overwrite title/artist with what the player reports now; a placeholder title (the bare
+    video id used when no title was known) never replaces a real one."""
+    if not title or title == placeholder:
+        return
+    conn.execute("UPDATE songs SET title = %s, artist = COALESCE(%s, artist) WHERE id = %s",
+                 (title, artist, song_id))
+
+
 def store_embedding(conn, song_id: int, *, song_vec: np.ndarray, spread: float, coverage: float,
                     window_starts: list[float], window_vecs: np.ndarray, model: str,
                     duration_s: float | None = None) -> None:

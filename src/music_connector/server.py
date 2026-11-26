@@ -3,6 +3,7 @@
 Protocol (one connection per captured tab, messages processed strictly in order):
   text   {"type": "hello", "sampleRate": 48000}
   text   {"type": "track", "videoId", "title", "artist", "duration", "position", "source"}
+  text   {"type": "meta", "videoId", "title", "artist"}   (title/artist arrived after "track")
   text   {"type": "state", "playing": bool, "position": float, "volume": float, "duration"}
   text   {"type": "seek", "position": float}
   text   {"type": "ad", "active": bool}
@@ -61,12 +62,16 @@ async def _handle(ws, embedder: Embedder, embed_lock: asyncio.Lock) -> None:
             elif session is None:
                 continue
             elif kind == "track":
-                log.info("now playing: %s – %s", msg.get("artist"), msg.get("title"))
+                if msg.get("title"):
+                    log.info("now playing: %s – %s", msg.get("artist"), msg.get("title"))
                 result = await run(session.on_track, msg["videoId"], msg.get("title") or msg["videoId"],
                                    msg.get("artist"), msg.get("duration"),
                                    msg.get("source", "ytmusic"), float(msg.get("position") or 0))
                 if result:
                     log.info("finished %s", _describe(result))
+            elif kind == "meta":
+                if session.on_meta(msg["videoId"], msg.get("title"), msg.get("artist")):
+                    log.info("now playing: %s – %s", msg.get("artist"), msg.get("title"))
             elif kind == "state":
                 session.on_state(bool(msg["playing"]), float(msg.get("position") or 0),
                                  msg.get("volume"), msg.get("duration"))

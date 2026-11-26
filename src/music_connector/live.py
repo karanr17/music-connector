@@ -75,6 +75,14 @@ class ListenSession:
         self._reset_buffer(position)
         return result
 
+    def on_meta(self, video_id: str, title: str | None, artist: str | None) -> bool:
+        """Late-arriving title/artist for the current track. Returns whether it applied."""
+        if self.track is None or self.track.video_id != video_id or not title:
+            return False
+        self.track.title = title
+        self.track.artist = artist or self.track.artist
+        return True
+
     def on_state(self, playing: bool, position: float, volume: float | None = None,
                  duration_s: float | None = None) -> None:
         if volume is not None:
@@ -172,9 +180,11 @@ def _store(track: Track, n_windows: int, model_id: str, reason: str) -> TrackRes
         song_id = db.upsert_song(conn, title=track.title, artist=track.artist,
                                  youtube_id=track.video_id, source=track.source,
                                  duration_s=track.duration_s)
-        # The row may predate this listen (e.g. created by a like) without a duration.
+        # The row may predate this listen (e.g. created by a like) without a duration, or with
+        # a placeholder or stale title from before the player had this track's metadata.
         conn.execute("UPDATE songs SET duration_s = COALESCE(%s, duration_s) WHERE id = %s",
                      (track.duration_s, song_id))
+        db.refresh_song_meta(conn, song_id, track.title, track.artist, track.video_id)
         if n_windows:
             existing = conn.execute(
                 "SELECT coverage FROM songs WHERE id = %s AND embedding IS NOT NULL", (song_id,)
@@ -206,5 +216,6 @@ def record_feedback(video_id: str, kind: str, title: str | None, artist: str | N
     with db.connect() as conn:
         song_id = db.upsert_song(conn, title=title or video_id, artist=artist,
                                  youtube_id=video_id, source=source)
+        db.refresh_song_meta(conn, song_id, title, artist, video_id)
         db.add_event(conn, song_id, kind, source="extension")
         conn.commit()
