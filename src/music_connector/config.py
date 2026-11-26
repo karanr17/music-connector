@@ -2,7 +2,8 @@ import os
 from dataclasses import dataclass, field
 
 DATABASE_URL = os.environ.get(
-    "MC_DATABASE_URL", "postgresql://music:music@localhost:5433/music_connector"
+    "MC_DATABASE_URL",
+    f"postgresql://music:music@localhost:{os.environ.get('MC_DB_PORT', '5433')}/music_connector",
 )
 MODEL_ID = os.environ.get("MC_MODEL_ID", "OpenMuQ/MuQ-MuLan-large")
 SAMPLE_RATE = 24_000

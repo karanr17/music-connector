@@ -1,0 +1,24 @@
+music-connector
+Copyright (c) 2026 karanr17
+
+The source code in this repository is licensed under the MIT License (see LICENSE).
+
+Model weights
+-------------
+This project downloads and runs the MuQ-MuLan model (OpenMuQ/MuQ-MuLan-large,
+https://huggingface.co/OpenMuQ/MuQ-MuLan-large) at runtime through the `muq`
+package and Hugging Face Hub.
+
+The MuQ-MuLan weights are licensed under Creative Commons
+Attribution-NonCommercial 4.0 International (CC BY-NC 4.0):
+https://creativecommons.org/licenses/by-nc/4.0/
+
+- The weights are NOT included in or distributed with this repository. They are
+  fetched from Hugging Face on first use, under their own licence.
+- The weights may be used for non-commercial purposes only. The MIT License on
+  this code does not grant any rights to the weights, and any use of this
+  project that runs the model is bound by CC BY-NC 4.0.
+- Embeddings and recommendations produced by the model are derived from the
+  weights; treat them as subject to the same non-commercial terms.
+
+Other dependencies are installed from PyPI under their own licences.
