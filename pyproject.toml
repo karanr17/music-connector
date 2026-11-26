@@ -1,0 +1,64 @@
+[project]
+name = "music-connector"
+version = "0.1.0"
+description = "Local music recommender: MuQ-MuLan audio embeddings in Postgres/pgvector, taste clusters, and live capture from a Brave extension"
+readme = "README.md"
+authors = [{ name = "karanr17" }]
+license = "MIT"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.12"
+dependencies = [
+    "librosa>=1.0.1",
+    "muq>=0.1.0",
+    "mutagen>=1.48.1",
+    "numpy>=2.5.5",
+    "pgvector>=0.5.1",
+    "psycopg[binary]>=3.3.9",
+    "rich>=15.0.0",
+    "scikit-learn>=1.9.1",
+    "scipy>=1.18.1",
+    "soundfile>=0.14.0",
+    "torch>=2.15.0",
+    "torchaudio>=2.11.1",
+    "transformers>=4.46,<4.50",
+    "typer>=0.29.2",
+    "websockets>=17.4",
+]
+
+[project.scripts]
+mc = "music_connector.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.10,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.14",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.flake8-bugbear]
+# Frozen dataclasses, so sharing one default instance is safe.
+extend-immutable-calls = ["music_connector.config.RecommendConfig", "music_connector.config.EventWeights"]
+
+# Linux (CI) installs CPU-only torch; the default PyPI wheels pull ~3 GB of CUDA libraries.
+# macOS is unaffected and keeps the PyPI wheels with MPS support.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchaudio = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

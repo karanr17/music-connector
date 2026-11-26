@@ -1,0 +1,48 @@
+# Python / tooling
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Personal listening data: Google Takeout exports and anything derived from them.
+watch-history.json
+watch-history*.json
+search-history*.json
+Takeout/
+takeout*/
+takeout-*.zip
+*.takeout.zip
+
+# Audio never belongs in the repo.
+*.mp3
+*.m4a
+*.aac
+*.flac
+*.wav
+*.ogg
+*.opus
+*.webm
+*.aiff
+
+# Local data directories (database dumps, model caches, embeddings exports).
+data/
+pgdata/
+*.dump
+*.sql.gz
+*.npy
+*.npz
+*.parquet
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

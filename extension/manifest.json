@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Music Connector",
+  "version": "0.1.0",
+  "description": "Embeds the songs you play on YouTube Music / YouTube on your own machine.",
+  "permissions": ["tabCapture", "offscreen", "storage", "scripting"],
+  "host_permissions": ["https://music.youtube.com/*", "https://www.youtube.com/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Music Connector: click to start capturing this tab" },
+  "content_scripts": [
+    {
+      "matches": ["https://music.youtube.com/*", "https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://music.youtube.com/*", "https://www.youtube.com/*"],
+      "js": ["page.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ]
+}
