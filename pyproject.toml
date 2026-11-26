@@ -8,12 +8,14 @@ license = "MIT"
 license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
 dependencies = [
+    "aiohttp>=3.11",
     "librosa>=1.0.1",
     "muq>=0.1.0",
     "mutagen>=1.48.1",
     "numpy>=2.5.5",
     "pgvector>=0.5.1",
     "psycopg[binary]>=3.3.9",
+    "pydantic>=2.10",
     "rich>=15.0.0",
     "scikit-learn>=1.9.1",
     "scipy>=1.18.1",
@@ -34,6 +36,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "jsonschema>=4.23",
     "matplotlib>=3.11.2",
     "pytest>=8",
     "ruff>=0.14",
@@ -51,7 +54,12 @@ select = ["E", "F", "W", "I", "B", "UP"]
 
 [tool.ruff.lint.flake8-bugbear]
 # Frozen dataclasses, so sharing one default instance is safe.
-extend-immutable-calls = ["music_connector.config.RecommendConfig", "music_connector.config.EventWeights"]
+extend-immutable-calls = [
+    "music_connector.config.RecommendConfig",
+    "music_connector.config.EventWeights",
+    "music_connector.analysis.segments.SegmentConfig",
+    "music_connector.analysis.analyzer.AnalyzeOptions",
+]
 
 # Linux (CI) installs CPU-only torch; the default PyPI wheels pull ~3 GB of CUDA libraries.
 # macOS is unaffected and keeps the PyPI wheels with MPS support.

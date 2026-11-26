@@ -209,15 +209,129 @@ def recommend(
 
 
 @app.command()
+def analyze(
+    file: Annotated[Path, typer.Argument(help="Audio file")],
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "-o", "--output", help="Where to write; default <file>.analysis.json beside it; '-' = stdout"
+        ),
+    ] = None,
+    windows: Annotated[bool, typer.Option(help="Include per-window descriptors (larger file)")] = False,
+    nearest: Annotated[int, typer.Option(help="Also list the N closest songs in your library")] = 0,
+    cache: Annotated[bool, typer.Option(help="Reuse a cached analysis of the same audio")] = True,
+    pretty: bool = False,
+):
+    """Analyse a song for the visual player: beats, energy, sections, descriptors (SongAnalysis v1)."""
+    import logging
+
+    from .analysis import AnalyzeOptions, SongAnalyzer
+
+    if not file.is_file():
+        console.print(f"[red]no such file: {file}[/]")
+        raise typer.Exit(1)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+    result = SongAnalyzer().analyze_file(
+        file, AnalyzeOptions(windows=windows, nearest=nearest), use_cache=cache
+    )
+    text = result.to_json(indent=1 if pretty else None)
+    if output is not None and str(output) == "-":
+        print(text)
+        return
+    out = output or file.with_name(file.stem + ".analysis.json")
+    out.write_text(text + "\n")
+    segs = " ".join(s.label for s in result.segments)
+    console.print(
+        f"{out}: {result.tempo.bpm:.0f} BPM, {len(result.beats)} beats, "
+        f"{len(result.segments)} segments ({segs})"
+    )
+
+
+@app.command()
+def schema(
+    output: Annotated[
+        Path | None, typer.Option("-o", "--output", help="Write here instead of stdout")
+    ] = None,
+):
+    """Print the SongAnalysis JSON Schema (the file in schema/ is generated with this)."""
+    import json
+
+    from .analysis import json_schema
+
+    text = json.dumps(json_schema(), indent=2) + "\n"
+    if output:
+        output.write_text(text)
+    else:
+        print(text, end="")
+
+
+@app.command()
+def calibrate(
+    paths: Annotated[
+        list[Path] | None, typer.Argument(help="Audio files or folders to calibrate against")
+    ] = None,
+    from_db: Annotated[
+        bool, typer.Option(help="Use the embeddings already in your library database")
+    ] = False,
+    name: Annotated[str | None, typer.Option(help="Calibration name recorded in each analysis")] = None,
+):
+    """Calibrate descriptor z-scores against a corpus (default output: ~/.config/music-connector)."""
+    import json
+
+    import numpy as np
+
+    from .analysis import descriptors as desc
+    from .embedder import Embedder
+
+    if not paths and not from_db:
+        raise typer.BadParameter("give audio paths or --from-db")
+    emb = Embedder()
+    text = emb.embed_text([p for _, _, p in desc.prompts()])
+    song_vecs, win_vecs = [], []
+    if from_db:
+        from . import db
+
+        with db.connect() as conn:
+            song_vecs += [
+                np.asarray(r[0])
+                for r in conn.execute("SELECT embedding FROM songs WHERE embedding IS NOT NULL")
+            ]
+            win_vecs += [np.asarray(r[0]) for r in conn.execute("SELECT embedding FROM song_windows")]
+    if paths:
+        from .analysis.analyzer import HOP_S, WINDOW_S
+        from .audio import decode, find_audio_files, hop_windows
+
+        for f in find_audio_files(paths):
+            wav = decode(f)
+            if len(wav) == 0:
+                continue
+            vecs = emb.embed_windows(hop_windows(wav, window_s=WINDOW_S, hop_s=HOP_S)[0])
+            mean = vecs.mean(axis=0)
+            song_vecs.append(mean / np.linalg.norm(mean))
+            win_vecs += list(vecs)
+            console.print(f"  {f.name}")
+    if len(song_vecs) < 20:
+        console.print(f"[yellow]only {len(song_vecs)} songs: z-scores will be noisy[/]")
+    cal = desc.Calibration.from_cosines(
+        name or ("library" if from_db else "custom"),
+        np.array(song_vecs) @ text.T,
+        np.array(win_vecs) @ text.T,
+    )
+    desc.USER_CALIBRATION.parent.mkdir(parents=True, exist_ok=True)
+    desc.USER_CALIBRATION.write_text(json.dumps(cal.to_dict(), indent=1) + "\n")
+    console.print(f"Calibrated on {cal.songs} songs / {cal.windows} windows → {desc.USER_CALIBRATION}")
+
+
+@app.command()
 def serve(host: str = "127.0.0.1", port: int = 8765):
-    """Receive live audio from the Brave extension and embed songs as you listen."""
+    """Live capture from the Brave extension, plus the /analyze API for the visual player."""
     import asyncio
     import logging
 
     from .server import serve_forever
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
-    logging.getLogger("websockets").setLevel(logging.WARNING)
+    logging.getLogger("aiohttp").setLevel(logging.WARNING)
     try:
         asyncio.run(serve_forever(host, port))
     except KeyboardInterrupt:

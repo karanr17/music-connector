@@ -1,3 +1,5 @@
+import os
+import threading
 from dataclasses import dataclass
 
 import numpy as np
@@ -5,6 +7,9 @@ import torch
 
 from .audio import windows
 from .config import MODEL_ID, SAMPLE_RATE
+
+# The text tokenizer's thread pool trips a warning on every later ffmpeg fork.
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 
 def best_device() -> str:
@@ -40,6 +45,9 @@ class Embedder:
         self.device = device or best_device()
         self.batch_size = batch_size
         self.model = MuQMuLan.from_pretrained(model_id).to(self.device).eval()
+        # MuQ-MuLan on MPS isn't safe to call from several threads at once, and `mc serve` runs
+        # live capture and /analyze requests in worker threads.
+        self._lock = threading.Lock()
 
     @torch.inference_mode()
     def embed_windows(self, wins: np.ndarray) -> np.ndarray:
@@ -49,9 +57,10 @@ class Embedder:
         of a song into one vector, and we need the per-window vectors too.
         """
         out = []
-        for i in range(0, len(wins), self.batch_size):
-            batch = torch.from_numpy(wins[i : i + self.batch_size]).to(self.device)
-            out.append(self.model.mulan_module.get_audio_latents(batch).float().cpu())
+        with self._lock:
+            for i in range(0, len(wins), self.batch_size):
+                batch = torch.from_numpy(wins[i : i + self.batch_size]).to(self.device)
+                out.append(self.model.mulan_module.get_audio_latents(batch).float().cpu())
         return torch.cat(out).numpy()
 
     def embed_wav(self, wav: np.ndarray) -> SongEmbedding:
@@ -62,7 +71,8 @@ class Embedder:
 
     @torch.inference_mode()
     def embed_text(self, texts: list[str]) -> np.ndarray:
-        return self.model(texts=texts).float().cpu().numpy()
+        with self._lock:
+            return self.model(texts=texts).float().cpu().numpy()
 
     def sync(self) -> None:
         if self.device == "mps":
