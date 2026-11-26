@@ -8,7 +8,7 @@ import mutagen
 from rich.progress import Progress
 
 from . import db
-from .audio import decode, find_audio_files
+from .audio import AUDIO_EXTS, decode, find_audio_files
 from .embedder import Embedder
 
 
@@ -40,13 +40,22 @@ def _prevent_idle_sleep() -> None:
 
 
 def ingest_files(paths: list[Path], pools: list[str], force: bool = False) -> int:
+    # Every check that can fail runs before the model load, which takes 10-40 s.
+    missing = [str(p) for p in paths if not p.exists()]
+    if missing:
+        raise FileNotFoundError(f"no such file or folder: {', '.join(missing)}")
     files = find_audio_files(paths)
     if not files:
-        return 0
-    _prevent_idle_sleep()
-    embedder = Embedder()
+        raise FileNotFoundError(f"no audio files ({', '.join(sorted(AUDIO_EXTS))}) found")
+    with db.connect() as conn:
+        _prevent_idle_sleep()
+        embedder = Embedder()
+        return _embed_all(conn, embedder, files, pools, force)
+
+
+def _embed_all(conn, embedder: Embedder, files: list[Path], pools: list[str], force: bool) -> int:
     done = 0
-    with db.connect() as conn, Progress() as progress:
+    with Progress() as progress:
         task = progress.add_task("Embedding", total=len(files))
         for path in files:
             local_path = str(path.resolve())

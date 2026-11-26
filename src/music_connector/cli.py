@@ -68,7 +68,11 @@ def ingest(
     """Embed full local audio files into the database."""
     from .ingest import ingest_files
 
-    n = ingest_files(paths, pool or [], force)
+    try:
+        n = ingest_files(paths, pool or [], force)
+    except FileNotFoundError as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(1) from None
     console.print(f"Embedded {n} new song(s).")
 
 
