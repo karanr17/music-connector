@@ -11,6 +11,10 @@ class FakeConn:
         self.songs = songs or {}
 
     def execute(self, sql, params=()):
+        if "FROM events e JOIN songs" in sql:
+            return _Result([(self.songs[i][1], k, age) for i, k, age in self.events if i in self.songs])
+        if sql.startswith("SELECT embedding FROM songs WHERE embedding IS NOT NULL"):
+            return _Result([(v,) for _, v in self.songs.values()])
         if "FROM events" in sql and "kind" in sql:
             return _Result(self.events)
         if "FROM songs WHERE id = ANY" in sql:

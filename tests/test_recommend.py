@@ -12,6 +12,7 @@ from music_connector.recommend import (
     _mmr_fill,
     _score,
     _smooth_order,
+    choose_scorer,
 )
 from music_connector.taste import TasteCluster
 
@@ -99,3 +100,32 @@ def test_smooth_order_starts_strong_then_chains_neighbours():
         Pick(cand(4, (1, 0.2, 0), score=0.2), "taste"),
     ]
     assert [p.candidate.id for p in _smooth_order(picks)] == [2, 3, 4, 1]
+
+
+def _feedback_conn(fake_conn, n_events):
+    songs = {i: (f"s{i}", unit(1, (i % 7) / 7, (i % 3) / 3)) for i in range(40)}
+    events = [(i % 40, "like" if i % 2 else "skip", 1.0) for i in range(n_events)]
+    return fake_conn(events, songs)
+
+
+def test_scorer_falls_back_to_v1_below_the_event_threshold(fake_conn):
+    clusters = [TasteCluster(10, "rock", unit(1, 0, 0), 2.0, [10])]
+    cfg = RecommendConfig(ts_min_events=50)
+    score, name = choose_scorer(_feedback_conn(fake_conn, 49), clusters, cfg, np.random.default_rng(0))
+    assert score is _score and name == "v1 cosine"
+
+
+def test_thompson_scorer_is_reproducible_with_a_seed(fake_conn):
+    clusters = [TasteCluster(10, "rock", unit(1, 0, 0), 2.0, [10])]
+    cfg = RecommendConfig(ts_min_events=50, pca_dim=2)
+    conn = _feedback_conn(fake_conn, 60)
+
+    def run(seed):
+        score, name = choose_scorer(conn, clusters, cfg, np.random.default_rng(seed))
+        cands = [cand(1, (1, 0.5, 0)), cand(2, (1, 0, 0.6))]
+        score(cands, clusters, None, cfg)
+        return name, [(c.score, c.near) for c in cands]
+
+    assert run(3) == run(3)
+    assert run(3)[0] == "v2 Thompson" and run(3)[1][0][1] == "rock"
+    assert run(3) != run(4)

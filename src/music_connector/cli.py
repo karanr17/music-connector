@@ -184,7 +184,10 @@ def show_taste(cluster_distance: float | None = None):
 
 
 @app.command()
-def recommend(size: int = 25):
+def recommend(
+    size: int = 25,
+    seed: Annotated[int | None, typer.Option(help="Fix the Thompson-sampling draw")] = None,
+):
     """Build a playlist from your taste clusters plus exploration slots."""
     from . import db
     from .config import RecommendConfig
@@ -192,11 +195,11 @@ def recommend(size: int = 25):
 
     with db.connect() as conn:
         try:
-            picks, clusters = build_playlist(conn, RecommendConfig(size=size))
+            picks, clusters, model = build_playlist(conn, RecommendConfig(size=size), seed)
         except LookupError as e:
             console.print(f"[yellow]{e}[/]")
             raise typer.Exit(1) from None
-    t = Table(title=f"Playlist · {len(picks)} songs from {len(clusters)} taste cluster(s)")
+    t = Table(title=f"Playlist · {len(picks)} songs from {len(clusters)} taste cluster(s) · {model}")
     for col in ("#", "id", "artist", "title", "slot", "score", "near"):
         t.add_column(col)
     for i, p in enumerate(picks, 1):

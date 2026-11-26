@@ -4,9 +4,10 @@ A personal music recommender that runs on your Mac. Full songs are embedded with
 [MuQ-MuLan](https://huggingface.co/OpenMuQ/MuQ-MuLan-large) and stored in Postgres + pgvector.
 Playlists are built from your taste clusters plus exploration slots for indie, older and random music.
 
-**Status: v1 + live capture.** Embeds local files, and also songs while you listen in Brave
-(YouTube Music / YouTube). Imports Google Takeout history and builds playlists in the terminal.
-Still to come: writing playlists to YouTube, and the Thompson-sampling preference model (v2).
+**Status: v2 + live capture.** Embeds local files, and also songs while you listen in Brave
+(YouTube Music / YouTube). Imports Google Takeout history and builds playlists in the terminal,
+scored by a Thompson-sampling preference model once there is enough feedback (see
+[v2](#v2-thompson-sampling-preference-model)).
 
 ## Live capture in Brave
 
@@ -75,7 +76,7 @@ uv run mc rate "Somebody Else" like                    # like | dislike | skip |
 uv run mc similar "Somebody Else"
 uv run mc search "dark slow R&B with heavy reverb"     # describe a sound in words
 uv run mc taste                                        # your taste clusters
-uv run mc recommend --size 25
+uv run mc recommend --size 25                          # --seed N fixes the Thompson draw
 uv run mc serve                                        # live capture from the Brave extension
 ```
 
@@ -106,7 +107,7 @@ At takeout.google.com, select only **YouTube and YouTube Music → history**, an
 **JSON**. Plays of songs that haven't been embedded yet are kept. They start counting towards your
 taste once their audio is embedded.
 
-## How recommendations work (v1)
+## How recommendations work
 
 1. **Embedding:** every song is cut into 10 s windows at 24 kHz, and each window becomes a 512-d
    MuQ-MuLan vector. The song vector is their re-normalised mean. `embedding_spread` records how
@@ -117,18 +118,114 @@ taste once their audio is embedded.
    clustering, and each cluster is represented by its weighted medoid (PinnerSage, KDD 2020).
 3. **Playlist:** slots are split 55% taste (shared across clusters by importance), 20% indie,
    15% classic and 10% wildcard. Slots a pool can't fill go back to taste. Candidates are the
-   pgvector nearest neighbours of each medoid. Their score is similarity to the medoid, with a
-   penalty for closeness to disliked songs. MMR then selects for diversity, with at most 2 songs
-   per artist. Finally the playlist is ordered so each song leads to its closest neighbour.
+   pgvector nearest neighbours of each medoid. With fewer than 50 feedback events their score is
+   v1's similarity to the medoid, with a penalty for closeness to disliked songs; from 50 on it is
+   the v2 model below. MMR then selects for diversity, with at most 2 songs per artist, and songs
+   within 0.97 cosine of anything already heard or picked are dropped. Finally the playlist is
+   ordered so each song leads to its closest neighbour.
 
 Settings are in `src/music_connector/config.py`.
+
+## v2: Thompson-sampling preference model
+
+Cosine-to-medoid knows *which* region of sound you like, but not *what within it*: two songs
+equally close to a medoid score the same even if you always finish one kind and skip the other.
+v2 learns that from your feedback, and keeps exploring where it is unsure.
+
+**Model** (`src/music_connector/preference.py`):
+
+1. **Projection.** PCA fit on the whole library's embeddings (unsupervised, so it never sees
+   feedback), keeping 16 components scaled to unit variance, plus a bias term. 512 → 17 numbers
+   keeps the posterior small enough to be well determined by a few hundred events.
+2. **Reward.** Each event becomes a target and a weight: like 1 (weight 1), complete 1 (0.5),
+   replay 1 (0.6), dislike 0 (1), skip 0 (0.7), play 0.5 (0.3). The events table stores no
+   per-event listen fraction, but the live capture's kinds are fraction bands (skip < 30 s,
+   play 30 s–80 %, complete ≥ 80 %), so a play counts as half. Weights decay with the same
+   90-day half-life as v1.
+3. **Posterior per taste cluster.** Conjugate Bayesian linear regression on the target scaled to
+   [−1, 1]. A global posterior is fit on all events; each PinnerSage cluster then starts from the
+   global mean (partial pooling) and adds the events whose song is nearest its medoid. A cluster
+   with few events stays close to the global fit instead of guessing.
+4. **Thompson sampling.** Each `mc recommend` draws one weight vector per cluster from its
+   posterior and scores every candidate with the draw for its nearest cluster. Uncertain clusters
+   vary more between playlists, which is the exploration. The draw is scaled by 0.5, a common
+   tempering (Chapelle & Li, 2011); `--seed` makes it reproducible.
+5. **On top, unchanged from v1:** cluster retrieval, slot quotas, the duplicate guard, MMR
+   diversity, the artist cap and smooth ordering.
+
+Below 50 feedback events on embedded songs the posterior is mostly prior, so `mc recommend` uses
+v1 and says which model it used in the table title.
+
+### Offline replay eval
+
+`scripts/replay_eval.py` replays an events log in time order. Every 25 events each method is fit
+on the past only, then scores the next events:
+
+- **HR@10 / NDCG@10:** each held-out like/complete/replay ranked against 99 songs not yet heard.
+  Sampled negatives flatter every method equally; use them to compare methods, not as absolute
+  quality.
+- **AUC:** score of held-out positives (like, complete, replay) vs negatives (skip, dislike).
+- **Calibration:** Brier and expected calibration error for methods that output a probability.
+- **Oracle like-rate@10** (synthetic only): the true like-probability of each method's top 10
+  unheard songs, i.e. what a playlist would actually deliver.
+
+Baselines: **random**, **most-played** (v1's recency-weighted event total per song: single-user
+popularity), **v1 cosine**, and v2 both as the **posterior mean** and as one **Thompson** draw.
+
+![Offline replay eval on synthetic data](docs/replay-eval.png)
+
+**Results on synthetic data** (not real listening data; 3,000 songs, 5 logs of 2,000 events,
+mean ± sd over logs; full numbers in `docs/replay-eval.json`):
+
+| | HR@10 | NDCG@10 | AUC | Brier | ECE | Oracle like-rate@10 |
+|---|---|---|---|---|---|---|
+| random | 0.10 ± 0.00 | 0.04 ± 0.00 | 0.50 ± 0.01 | 0.248 | 0.048 | 0.22 ± 0.00 |
+| most-played | 0.44 ± 0.05 | 0.44 ± 0.05 | 0.61 ± 0.02 | 0.248 | 0.048 | 0.22 ± 0.01 |
+| v1 cosine | 0.43 ± 0.04 | 0.23 ± 0.01 | 0.67 ± 0.01 | – | – | 0.36 ± 0.03 |
+| v2 posterior mean | **0.62 ± 0.10** | 0.36 ± 0.07 | **0.75 ± 0.02** | **0.205** | 0.058 | **0.73 ± 0.03** |
+| v2 Thompson | 0.55 ± 0.08 | 0.29 ± 0.05 | 0.72 ± 0.02 | – | – | 0.61 ± 0.02 |
+
+How to read it:
+
+- v2 doubles the true like-rate of the top 10 over v1 (0.73 vs 0.36) and recovers after the
+  simulated taste shift on day 90. v1 can't separate songs that are equally close to a medoid.
+- Most-played wins NDCG because many held-out positives are replays of songs it already ranks
+  first; it has nothing to say about unheard songs (oracle 0.22, the same as random).
+- The Thompson draw scores below the posterior mean offline. That is expected: a replay of a fixed
+  log can only charge for exploration, never pay it back, because the songs a draw would explore
+  were never shown. The online benefit of Thompson sampling is not measurable this way.
+- Calibration is fair (ECE 0.06); a linear model on a bounded reward over-predicts at the
+  extremes, visible in the reliability panel.
+- `random` and `most-played` report the running base rate as their probability, which is why
+  their Brier and ECE are identical.
+
+**Why synthetic.** The owner's own log is far too small to replay: at the time of writing it has
+41 embedded songs and 3 feedback events, below the 50-event warm-up, so the script reports "too
+few events" rather than metrics. No public listening dataset ships MuQ-MuLan embeddings, and
+computing them needs the audio and the non-commercial model. `src/music_connector/synthetic.py`
+instead builds a library with the same geometry as a real MuQ-MuLan library (unit vectors, a
+strong shared component; pairwise cosine 0.34 ± 0.19 vs 0.42 ± 0.19 measured in aggregate on a
+real one) from genres, sub-genres and continuous style axes. Its listener likes a few sub-genres,
+prefers one end of a style axis within each, shifts taste halfway through, and is served by a
+logging policy like real use (mostly neighbours of liked songs, some replays, some random). The
+v2 settings were chosen on a different synthetic world and log seed from the ones reported.
+
+```sh
+uv run python scripts/replay_eval.py synthetic   # regenerates docs/replay-eval.{png,json}
+uv run python scripts/replay_eval.py owner       # your events table, read-only, prints aggregates
+```
+
+**Privacy.** The eval runs locally. The `owner` mode opens a read-only transaction, writes
+nothing to the database or the repo, and prints only counts and aggregate metrics: never song
+ids, titles or events. The committed plot and JSON come from synthetic data only.
 
 ## Privacy
 
 Everything stays on your machine. Audio is decoded in memory and never written to disk; your
 listening history, ratings and embeddings live only in the local Postgres volume; the server
-binds to 127.0.0.1 and only accepts connections from the extension or local scripts. Nothing is
-sent anywhere except the one-time model download from Hugging Face.
+binds to 127.0.0.1 and only accepts connections from the extension or local scripts. The v2
+preference model is refit in memory from the local events table on each `mc recommend` and is
+never saved or sent. Nothing is sent anywhere except the one-time model download from Hugging Face.
 
 This repository contains no listening data: no Takeout exports, no event history, no audio. The
 `.gitignore` excludes `.env`, `watch-history*.json`, Takeout folders, audio files and local data
