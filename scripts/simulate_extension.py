@@ -10,6 +10,7 @@ youtube_id SIM-1..3; `--cleanup` deletes them afterwards.
 import argparse
 import asyncio
 import json
+import time
 
 import numpy as np
 import psycopg
@@ -70,6 +71,29 @@ async def run(url: str, files: list[str]) -> None:
         await asyncio.sleep(1)
 
 
+def last_event_id() -> int:
+    with psycopg.connect(DATABASE_URL) as conn:
+        return conn.execute("SELECT coalesce(max(id), 0) FROM events").fetchone()[0]
+
+
+def wait_for_disconnect_store(after_event_id: int, timeout_s: float = 60.0) -> bool:
+    """The server stores the last track only after it sees the socket close, so the report can
+    otherwise run first and read SIM-3 before its listen is saved. The listen event is written in
+    the same transaction as the embedding, so its arrival means the row is complete."""
+    deadline = time.monotonic() + timeout_s
+    with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
+        while time.monotonic() < deadline:
+            if conn.execute(
+                """SELECT 1 FROM events e JOIN songs s ON s.id = e.song_id
+                   WHERE s.youtube_id = 'SIM-3' AND e.id > %s
+                     AND e.kind NOT IN ('like', 'dislike')""",
+                (after_event_id,),
+            ).fetchone():
+                return True
+            time.sleep(0.2)
+    return False
+
+
 def report(cleanup: bool) -> None:
     with psycopg.connect(DATABASE_URL) as conn:
         rows = conn.execute(
@@ -82,7 +106,8 @@ def report(cleanup: bool) -> None:
         ).fetchall()
         for vid, d, cov, n, starts, events in rows:
             cov_s = f"{cov:.2f}" if cov is not None else "-"
-            print(f"{vid}: duration {d:.0f}s coverage {cov_s} windows {n} events [{events}]")
+            d_s = f"{d:.0f}s" if d is not None else "-"
+            print(f"{vid}: duration {d_s} coverage {cov_s} windows {n} events [{events}]")
             print(f"    window starts: {starts}")
         if cleanup:
             conn.execute("DELETE FROM songs WHERE youtube_id LIKE 'SIM-%%'")
@@ -94,7 +119,10 @@ def main() -> None:
     ap.add_argument("--url", default="ws://127.0.0.1:8765")
     ap.add_argument("--cleanup", action="store_true")
     args = ap.parse_args()
+    baseline = last_event_id()
     asyncio.run(run(args.url, args.files))
+    if not wait_for_disconnect_store(baseline):
+        print("warning: server had not stored SIM-3 after 60 s; the report may be incomplete")
     report(args.cleanup)
 
 
