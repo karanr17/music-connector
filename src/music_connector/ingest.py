@@ -67,6 +67,8 @@ def _embed_all(conn, embedder: Embedder, files: list[Path], pools: list[str], fo
                 continue
             try:
                 wav = decode(path)
+                if not len(wav):
+                    raise ValueError("decoded to no audio")
             except Exception as e:  # noqa: BLE001 - one unreadable file shouldn't stop a batch
                 progress.console.print(f"[red]skip[/] {path.name}: {e}")
                 progress.advance(task)
