@@ -1,6 +1,7 @@
-"""v1 playlist builder: taste-cluster retrieval + exploration slots + MMR diversity + smooth ordering.
+"""Playlist builder: taste-cluster retrieval + exploration slots + MMR diversity + smooth ordering.
 
-No learned model yet; the Thompson-sampling preference model replaces `_score` in v2.
+Candidates are scored by the v2 Thompson-sampling preference model once there is enough feedback
+(`RecommendConfig.ts_min_events`), and by v1 cosine-to-medoid before that.
 """
 
 from collections import Counter
@@ -8,7 +9,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from . import taste
+from . import preference, taste
 from .config import RecommendConfig
 from .db import as_array
 
@@ -82,17 +83,65 @@ def _drop_duplicates(group: list[Candidate], avoid: np.ndarray, cfg: RecommendCo
     return [c for c, s in zip(group, sims.max(axis=1), strict=True) if s <= cfg.duplicate_cosine]
 
 
+def v1_scores(
+    C: np.ndarray, medoids: np.ndarray, dis_vecs: np.ndarray, dislike_penalty: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Cosine to the nearest medoid minus a penalty for closeness to disliked songs; and that medoid."""
+    sims = C @ medoids.T
+    penalty = (C @ dis_vecs.T).max(axis=1) if len(dis_vecs) else np.zeros(len(C))
+    return sims.max(axis=1) - dislike_penalty * np.maximum(penalty, 0.0), sims.argmax(axis=1)
+
+
 def _score(cands: list[Candidate], clusters, dis_vecs: np.ndarray, cfg: RecommendConfig) -> None:
     if not cands:
         return
-    C = np.stack([c.vec for c in cands])
     M = np.stack([k.medoid_vec for k in clusters])
-    sims = C @ M.T
-    best = sims.argmax(axis=1)
-    penalty = (C @ dis_vecs.T).max(axis=1) if len(dis_vecs) else np.zeros(len(cands))
-    for c, k, s, p in zip(cands, best, sims.max(axis=1), penalty, strict=True):
-        c.score = float(s - cfg.dislike_penalty * max(p, 0.0))
+    scores, best = v1_scores(np.stack([c.vec for c in cands]), M, dis_vecs, cfg.dislike_penalty)
+    for c, k, s in zip(cands, best, scores, strict=True):
+        c.score = float(s)
         c.near = clusters[k].medoid_title
+
+
+def _ts_scorer(model: preference.PreferenceModel, theta: np.ndarray, clusters):
+    def score(cands: list[Candidate], *_) -> None:
+        if not cands:
+            return
+        scores, best = model.predict(np.stack([c.vec for c in cands]), theta)
+        for c, k, s in zip(cands, best, scores, strict=True):
+            c.score = float(s)
+            c.near = clusters[k].medoid_title
+
+    return score
+
+
+def _feedback(conn) -> tuple[np.ndarray, list[str], np.ndarray]:
+    rows = conn.execute(
+        """SELECT s.embedding, e.kind, extract(epoch FROM now() - e.at) / 86400.0
+           FROM events e JOIN songs s ON s.id = e.song_id WHERE s.embedding IS NOT NULL"""
+    ).fetchall()
+    if not rows:
+        return np.empty((0, 0), dtype=np.float32), [], np.empty(0)
+    return (
+        np.stack([as_array(r[0]) for r in rows]),
+        [r[1] for r in rows],
+        np.array([float(r[2]) for r in rows]),
+    )
+
+
+def _library(conn) -> np.ndarray:
+    rows = conn.execute("SELECT embedding FROM songs WHERE embedding IS NOT NULL").fetchall()
+    return np.stack([as_array(r[0]) for r in rows])
+
+
+def choose_scorer(conn, clusters, cfg: RecommendConfig, rng: np.random.Generator):
+    """v2 Thompson sampling with one posterior draw per cluster for this playlist, or v1 below
+    `cfg.ts_min_events`. Returns (score function, model name)."""
+    vecs, kinds, ages = _feedback(conn)
+    if len(kinds) < cfg.ts_min_events:
+        return _score, "v1 cosine"
+    medoids = np.stack([k.medoid_vec for k in clusters])
+    model = preference.fit(_library(conn), medoids, vecs, kinds, ages, cfg)
+    return _ts_scorer(model, model.weights(rng, cfg.ts_exploration), clusters), "v2 Thompson"
 
 
 def _allocate(total: int, shares: dict[str, float]) -> dict[str, int]:
@@ -146,8 +195,9 @@ def _smooth_order(picks: list[Pick]) -> list[Pick]:
 
 
 def build_playlist(
-    conn, cfg: RecommendConfig = RecommendConfig()
-) -> tuple[list[Pick], list[taste.TasteCluster]]:
+    conn, cfg: RecommendConfig = RecommendConfig(), seed: int | None = None
+) -> tuple[list[Pick], list[taste.TasteCluster], str]:
+    """Returns (ordered picks, taste clusters, name of the scoring model used)."""
     clusters, dis_vecs = taste.build(conn, cfg)
     if not clusters:
         raise LookupError(
@@ -158,6 +208,7 @@ def build_playlist(
     weights = taste.song_weights(conn, cfg.recency_half_life_days)
     exclude = set(_excluded_ids(conn, cfg, weights)) | {m for k in clusters for m in k.member_ids}
     avoid = _excluded_vecs(conn, exclude)
+    score, model_name = choose_scorer(conn, clusters, cfg, np.random.default_rng(seed))
 
     quotas = _allocate(cfg.size, cfg.slots)
     picks: list[Pick] = []
@@ -170,7 +221,7 @@ def build_playlist(
         group = _drop_duplicates(
             _nearest(conn, k.medoid_vec, exclude, cfg.neighbours_per_cluster), avoid, cfg
         )
-        _score(group, clusters, dis_vecs, cfg)
+        score(group, clusters, dis_vecs, cfg)
         taste_pool += group
         shortfall += _mmr_fill(group, per_cluster[str(i)], "taste", picks, artists, cfg)
 
@@ -180,9 +231,9 @@ def build_playlist(
         else:
             group = [c for k in clusters for c in _nearest(conn, k.medoid_vec, exclude, 50, pool=slot)]
         group = _drop_duplicates(group, avoid, cfg)
-        _score(group, clusters, dis_vecs, cfg)
+        score(group, clusters, dis_vecs, cfg)
         shortfall += _mmr_fill(group, quota, slot, picks, artists, cfg)
 
     if shortfall:
         _mmr_fill(taste_pool, shortfall, "taste", picks, artists, cfg)
-    return _smooth_order(picks), clusters
+    return _smooth_order(picks), clusters, model_name

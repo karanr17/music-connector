@@ -45,3 +45,16 @@ class RecommendConfig:
     dislike_penalty: float = 0.5
     neighbours_per_cluster: int = 200
     exclude_heard_days: int = 30
+    # v2 Thompson-sampling preference model. Below this many feedback events on embedded songs
+    # the posterior is mostly prior, so the v1 cosine-to-medoid score is used instead.
+    ts_min_events: int = 50
+    pca_dim: int = 16
+    # Prior precision on the global weights, and how strongly each taste cluster's weights are
+    # pulled towards the global fit (empirical-Bayes partial pooling).
+    ts_prior_precision: float = 1.0
+    ts_cluster_pooling: float = 16.0
+    ts_noise_var: float = 1.0
+    # Scales the posterior spread when sampling: 1 is textbook Thompson sampling, 0 is greedy.
+    # Below 1 as in Chapelle & Li (2011); the prior, pooling and noise values above were chosen
+    # on a held-out synthetic world (see scripts/replay_eval.py), not on the reported one.
+    ts_exploration: float = 0.5

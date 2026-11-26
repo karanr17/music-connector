@@ -1,0 +1,165 @@
+{
+  "meta": {
+    "data": "synthetic (labelled: not real listening data)",
+    "songs": 3000,
+    "events_per_log": 2000,
+    "logs": 5,
+    "taste_shift_day": 90.0
+  },
+  "metrics": {
+    "random": {
+      "hit_rate@10": {
+        "mean": 0.0992,
+        "sd": 0.0048
+      },
+      "ndcg@10": {
+        "mean": 0.0445,
+        "sd": 0.0048
+      },
+      "auc": {
+        "mean": 0.4975,
+        "sd": 0.011
+      },
+      "n_positive_targets": {
+        "mean": 738.0,
+        "sd": 53.0094
+      },
+      "n_labelled_events": {
+        "mean": 1631.8,
+        "sd": 2.9257
+      },
+      "brier": {
+        "mean": 0.2481,
+        "sd": 0.0023
+      },
+      "ece": {
+        "mean": 0.0482,
+        "sd": 0.0232
+      },
+      "oracle_like_rate@10": {
+        "mean": 0.2226,
+        "sd": 0.0045
+      }
+    },
+    "most-played": {
+      "hit_rate@10": {
+        "mean": 0.4445,
+        "sd": 0.0512
+      },
+      "ndcg@10": {
+        "mean": 0.4445,
+        "sd": 0.0512
+      },
+      "auc": {
+        "mean": 0.6136,
+        "sd": 0.0174
+      },
+      "n_positive_targets": {
+        "mean": 738.0,
+        "sd": 53.0094
+      },
+      "n_labelled_events": {
+        "mean": 1631.8,
+        "sd": 2.9257
+      },
+      "brier": {
+        "mean": 0.2481,
+        "sd": 0.0023
+      },
+      "ece": {
+        "mean": 0.0482,
+        "sd": 0.0232
+      },
+      "oracle_like_rate@10": {
+        "mean": 0.2217,
+        "sd": 0.005
+      }
+    },
+    "v1 cosine": {
+      "hit_rate@10": {
+        "mean": 0.429,
+        "sd": 0.037
+      },
+      "ndcg@10": {
+        "mean": 0.2345,
+        "sd": 0.0118
+      },
+      "auc": {
+        "mean": 0.6718,
+        "sd": 0.0138
+      },
+      "n_positive_targets": {
+        "mean": 738.0,
+        "sd": 53.0094
+      },
+      "n_labelled_events": {
+        "mean": 1631.8,
+        "sd": 2.9257
+      },
+      "oracle_like_rate@10": {
+        "mean": 0.3645,
+        "sd": 0.03
+      }
+    },
+    "v2 posterior mean": {
+      "hit_rate@10": {
+        "mean": 0.6241,
+        "sd": 0.097
+      },
+      "ndcg@10": {
+        "mean": 0.3641,
+        "sd": 0.0721
+      },
+      "auc": {
+        "mean": 0.7457,
+        "sd": 0.0202
+      },
+      "n_positive_targets": {
+        "mean": 738.0,
+        "sd": 53.0094
+      },
+      "n_labelled_events": {
+        "mean": 1631.8,
+        "sd": 2.9257
+      },
+      "brier": {
+        "mean": 0.2055,
+        "sd": 0.0073
+      },
+      "ece": {
+        "mean": 0.0576,
+        "sd": 0.0144
+      },
+      "oracle_like_rate@10": {
+        "mean": 0.7269,
+        "sd": 0.0303
+      }
+    },
+    "v2 Thompson": {
+      "hit_rate@10": {
+        "mean": 0.5467,
+        "sd": 0.0796
+      },
+      "ndcg@10": {
+        "mean": 0.2881,
+        "sd": 0.0496
+      },
+      "auc": {
+        "mean": 0.7235,
+        "sd": 0.0203
+      },
+      "n_positive_targets": {
+        "mean": 738.0,
+        "sd": 53.0094
+      },
+      "n_labelled_events": {
+        "mean": 1631.8,
+        "sd": 2.9257
+      },
+      "oracle_like_rate@10": {
+        "mean": 0.6101,
+        "sd": 0.0151
+      }
+    }
+  }
+}

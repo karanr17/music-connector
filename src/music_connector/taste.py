@@ -28,6 +28,13 @@ def song_weights(conn, half_life_days: float, weights: EventWeights = EventWeigh
     rows = conn.execute(
         "SELECT song_id, kind, extract(epoch FROM now() - at) / 86400.0 FROM events"
     ).fetchall()
+    return weights_from_events(rows, half_life_days, weights)
+
+
+def weights_from_events(
+    rows, half_life_days: float, weights: EventWeights = EventWeights()
+) -> dict[int, float]:
+    """`rows` are (song_id, kind, age_days); split out so the offline replay can reuse it."""
     totals: dict[int, float] = defaultdict(float)
     for song_id, kind, age_days in rows:
         decay = 0.5 ** (max(float(age_days), 0.0) / half_life_days)
@@ -53,9 +60,14 @@ def build(conn, cfg: RecommendConfig = RecommendConfig()) -> tuple[list[TasteClu
 
     ids, titles, X = _embeddings(conn, liked)
     _, _, dis_vecs = _embeddings(conn, disliked)
-    if not ids:
-        return [], dis_vecs
+    return cluster(ids, titles, X, liked, cfg), dis_vecs
 
+
+def cluster(
+    ids: list[int], titles: list[str], X: np.ndarray, liked: dict[int, float], cfg: RecommendConfig
+) -> list[TasteCluster]:
+    if not ids:
+        return []
     w = np.array([liked[i] for i in ids])
     labels = (
         np.ones(len(ids), dtype=int)
@@ -71,4 +83,4 @@ def build(conn, cfg: RecommendConfig = RecommendConfig()) -> tuple[list[TasteClu
         m = idx[np.argmax(sims @ w[idx])]
         clusters.append(TasteCluster(ids[m], titles[m], X[m], float(w[idx].sum()), [ids[i] for i in idx]))
     clusters.sort(key=lambda c: c.importance, reverse=True)
-    return clusters, dis_vecs
+    return clusters
