@@ -12,15 +12,30 @@ MIN_TAIL_S = 3.0
 def decode(path: str | Path, sr: int = SAMPLE_RATE) -> np.ndarray:
     """Decode any ffmpeg-readable file to mono float32 at `sr`."""
     out = subprocess.run(
-        ["ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-ac", "1", "-ar", str(sr),
-         "-f", "f32le", "-"],
-        check=True, capture_output=True,
+        [
+            "ffmpeg",
+            "-nostdin",
+            "-v",
+            "error",
+            "-i",
+            str(path),
+            "-ac",
+            "1",
+            "-ar",
+            str(sr),
+            "-f",
+            "f32le",
+            "-",
+        ],
+        check=True,
+        capture_output=True,
     ).stdout
     return np.frombuffer(out, dtype=np.float32).copy()
 
 
-def windows(wav: np.ndarray, sr: int = SAMPLE_RATE, window_s: float = WINDOW_S
-            ) -> tuple[np.ndarray, list[float]]:
+def windows(
+    wav: np.ndarray, sr: int = SAMPLE_RATE, window_s: float = WINDOW_S
+) -> tuple[np.ndarray, list[float]]:
     """Split into back-to-back windows. Returns (windows [n, samples], start times in seconds).
 
     A leftover tail of at least MIN_TAIL_S becomes one extra window aligned to the end of the
@@ -35,7 +50,7 @@ def windows(wav: np.ndarray, sr: int = SAMPLE_RATE, window_s: float = WINDOW_S
     starts = [i * size for i in range(n_full)]
     if len(wav) - n_full * size >= MIN_TAIL_S * sr:
         starts.append(len(wav) - size)
-    return np.stack([wav[s:s + size] for s in starts]), [s / sr for s in starts]
+    return np.stack([wav[s : s + size] for s in starts]), [s / sr for s in starts]
 
 
 def find_audio_files(paths: list[Path]) -> list[Path]:

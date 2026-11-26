@@ -44,8 +44,9 @@ def _song_table(title: str, rows, extra: str | None = None) -> Table:
 
 @app.command()
 def bench(
-    files: Annotated[list[Path] | None, typer.Argument(
-        help="Audio files; synthetic audio if omitted")] = None,
+    files: Annotated[
+        list[Path] | None, typer.Argument(help="Audio files; synthetic audio if omitted")
+    ] = None,
     song_seconds: float = 210.0,
     batch_sizes: str = "1,4,8,16",
     repeats: int = 3,
@@ -55,8 +56,7 @@ def bench(
     """Benchmark MuQ-MuLan embedding speed on this machine."""
     from .bench import run
 
-    run(files or [], song_seconds, [int(b) for b in batch_sizes.split(",")], repeats,
-        project_songs, device)
+    run(files or [], song_seconds, [int(b) for b in batch_sizes.split(",")], repeats, project_songs, device)
 
 
 @app.command()
@@ -79,8 +79,9 @@ def ingest(
 @app.command("import-takeout")
 def import_takeout(
     path: Annotated[Path, typer.Argument(help="Takeout watch-history.json")],
-    include_youtube: Annotated[bool, typer.Option(
-        help="Also take plain-YouTube plays from '- Topic' / VEVO channels")] = False,
+    include_youtube: Annotated[
+        bool, typer.Option(help="Also take plain-YouTube plays from '- Topic' / VEVO channels")
+    ] = False,
 ):
     """Seed listening history from Google Takeout."""
     from . import db
@@ -122,10 +123,10 @@ def songs(limit: int = 50):
     with db.connect() as conn:
         rows = conn.execute(
             """SELECT id, title, artist, embedding_spread FROM songs
-               WHERE embedding IS NOT NULL ORDER BY id LIMIT %s""", (limit,),
+               WHERE embedding IS NOT NULL ORDER BY id LIMIT %s""",
+            (limit,),
         ).fetchall()
-        total, embedded = conn.execute(
-            "SELECT count(*), count(embedding) FROM songs").fetchone()
+        total, embedded = conn.execute("SELECT count(*), count(embedding) FROM songs").fetchone()
     console.print(_song_table(f"Embedded songs ({embedded} of {total})", rows, "spread"))
 
 
@@ -140,7 +141,8 @@ def similar(song: str, limit: int = 10):
             """SELECT b.id, b.title, b.artist, 1 - (b.embedding <=> a.embedding)
                FROM songs a JOIN songs b ON b.id <> a.id AND b.embedding IS NOT NULL
                WHERE a.id = %s AND a.embedding IS NOT NULL
-               ORDER BY b.embedding <=> a.embedding LIMIT %s""", (song_id, limit),
+               ORDER BY b.embedding <=> a.embedding LIMIT %s""",
+            (song_id, limit),
         ).fetchall()
     console.print(_song_table(f"Closest to {artist or '?'} – {title}", rows, "cosine"))
 

@@ -78,8 +78,10 @@ def test_drop_duplicates_against_heard_songs():
 
 
 def test_score_uses_best_medoid_and_dislike_penalty():
-    clusters = [TasteCluster(10, "rock", unit(1, 0, 0), 2.0, [10]),
-                TasteCluster(20, "jazz", unit(0, 1, 0), 1.0, [20])]
+    clusters = [
+        TasteCluster(10, "rock", unit(1, 0, 0), 2.0, [10]),
+        TasteCluster(20, "jazz", unit(0, 1, 0), 1.0, [20]),
+    ]
     a, b = cand(1, (0, 1, 0)), cand(2, (1, 0, 1))
     _score([a, b], clusters, np.empty((0, 3), dtype=np.float32), CFG)
     assert a.near == "jazz" and a.score == pytest.approx(1.0)
@@ -90,8 +92,10 @@ def test_score_uses_best_medoid_and_dislike_penalty():
 
 
 def test_smooth_order_starts_strong_then_chains_neighbours():
-    picks = [Pick(cand(1, (1, 0, 0), score=0.5), "taste"),
-             Pick(cand(2, (0, 1, 0), score=0.9), "taste"),
-             Pick(cand(3, (0.2, 1, 0), score=0.1), "taste"),
-             Pick(cand(4, (1, 0.2, 0), score=0.2), "taste")]
+    picks = [
+        Pick(cand(1, (1, 0, 0), score=0.5), "taste"),
+        Pick(cand(2, (0, 1, 0), score=0.9), "taste"),
+        Pick(cand(3, (0.2, 1, 0), score=0.1), "taste"),
+        Pick(cand(4, (1, 0.2, 0), score=0.2), "taste"),
+    ]
     assert [p.candidate.id for p in _smooth_order(picks)] == [2, 3, 4, 1]

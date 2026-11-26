@@ -50,8 +50,7 @@ def import_history(path: Path, include_youtube: bool = False) -> tuple[int, int]
         ids = {}
         for vid, title, artist, at in plays:
             if vid not in ids:
-                ids[vid] = db.upsert_song(conn, title=title, artist=artist, youtube_id=vid,
-                                          source="takeout")
+                ids[vid] = db.upsert_song(conn, title=title, artist=artist, youtube_id=vid, source="takeout")
             db.add_event(conn, ids[vid], "play", at=at, source="takeout")
         conn.commit()
     return len(ids), len(plays)
@@ -64,4 +63,3 @@ def top_played(conn, limit: int = 20) -> list[tuple]:
            WHERE e.kind = 'play' GROUP BY s.id ORDER BY plays DESC LIMIT %s""",
         (limit,),
     ).fetchall()
-

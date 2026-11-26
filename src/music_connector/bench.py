@@ -27,22 +27,31 @@ def _synthetic_song(seconds: float, seed: int = 0) -> np.ndarray:
 
 def _chip() -> str:
     try:
-        return subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"],
-                              capture_output=True, text=True).stdout.strip()
+        return subprocess.run(
+            ["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True
+        ).stdout.strip()
     except OSError:
         return platform.processor()
 
 
-def run(files: list[Path], song_seconds: float, batch_sizes: list[int], repeats: int,
-        project_songs: int, device: str | None) -> None:
+def run(
+    files: list[Path],
+    song_seconds: float,
+    batch_sizes: list[int],
+    repeats: int,
+    project_songs: int,
+    device: str | None,
+) -> None:
     console.print(f"[bold]Machine:[/] {_chip()} · torch {torch.__version__}")
 
     t0 = time.perf_counter()
     emb = Embedder(device=device)
     load_s = time.perf_counter() - t0
     n_params = sum(p.numel() for p in emb.model.parameters()) / 1e6
-    console.print(f"[bold]Model:[/] {emb.model_id} ({n_params:.0f}M params) on "
-                  f"[cyan]{emb.device}[/], loaded in {load_s:.1f}s")
+    console.print(
+        f"[bold]Model:[/] {emb.model_id} ({n_params:.0f}M params) on "
+        f"[cyan]{emb.device}[/], loaded in {load_s:.1f}s"
+    )
 
     decode_times = []
     if files:
@@ -76,16 +85,19 @@ def run(files: list[Path], song_seconds: float, batch_sizes: list[int], repeats:
                 times.append(time.perf_counter() - t0)
             t = float(np.median(times))
             audio_s = len(wav) / SAMPLE_RATE
-            table.add_row(str(bs), name[:40], f"{audio_s:.0f}s", str(len(wins)),
-                          f"{t:.2f}s", f"{audio_s / t:.0f}×")
+            table.add_row(
+                str(bs), name[:40], f"{audio_s:.0f}s", str(len(wins)), f"{t:.2f}s", f"{audio_s / t:.0f}×"
+            )
             per_audio_second = t / audio_s
             if best is None or per_audio_second < best[1]:
                 best = (bs, per_audio_second)
     console.print(table)
 
     song_vec, spread = pool(vecs)
-    console.print(f"Sanity: song vector norm {np.linalg.norm(song_vec):.3f}, "
-                  f"window spread {spread:.3f}, dim {song_vec.shape[0]}")
+    console.print(
+        f"Sanity: song vector norm {np.linalg.norm(song_vec):.3f}, "
+        f"window spread {spread:.3f}, dim {song_vec.shape[0]}"
+    )
 
     if emb.device == "mps":
         console.print(f"MPS memory: {torch.mps.driver_allocated_memory() / 2**30:.1f} GiB allocated")

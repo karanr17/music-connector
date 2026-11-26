@@ -10,8 +10,15 @@ W = EventWeights()
 
 
 def test_weights_sum_kinds_and_decay_with_age():
-    conn = FakeConn(events=[(1, "like", 0.0), (1, "complete", 0.0), (2, "skip", 90.0),
-                            (3, "like", 180.0), (3, "dislike", 0.0)])
+    conn = FakeConn(
+        events=[
+            (1, "like", 0.0),
+            (1, "complete", 0.0),
+            (2, "skip", 90.0),
+            (3, "like", 180.0),
+            (3, "dislike", 0.0),
+        ]
+    )
     got = taste.song_weights(conn, half_life_days=90)
     assert got[1] == pytest.approx(W.like + W.complete)
     assert got[2] == pytest.approx(W.skip / 2)
@@ -38,8 +45,14 @@ def test_build_splits_distinct_tastes_and_picks_weighted_medoid():
         4: ("jazz", unit(0, 0, 1)),
         5: ("hated", unit(0, 1, 0)),
     }
-    events = [(1, "complete", 0), (2, "complete", 0), (3, "like", 0), (3, "like", 0),
-              (4, "like", 0), (5, "dislike", 0)]
+    events = [
+        (1, "complete", 0),
+        (2, "complete", 0),
+        (3, "like", 0),
+        (3, "like", 0),
+        (4, "like", 0),
+        (5, "dislike", 0),
+    ]
     clusters, dis_vecs = taste.build(FakeConn(events, songs), RecommendConfig())
 
     assert [sorted(k.member_ids) for k in clusters] == [[1, 2, 3], [4]]

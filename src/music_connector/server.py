@@ -29,8 +29,10 @@ FEEDBACK_KINDS = {"like", "dislike"}
 
 def _describe(r: TrackResult) -> str:
     cov = f"{r.coverage:.0%}" if r.coverage is not None else "?"
-    return (f"{r.title!r}: {r.windows} windows, heard {r.listened_s:.0f}s ({cov}), "
-            f"event={r.event or '-'}, embedding {'saved' if r.stored_embedding else 'kept'}")
+    return (
+        f"{r.title!r}: {r.windows} windows, heard {r.listened_s:.0f}s ({cov}), "
+        f"event={r.event or '-'}, embedding {'saved' if r.stored_embedding else 'kept'}"
+    )
 
 
 async def _handle(ws, embedder: Embedder, embed_lock: asyncio.Lock) -> None:
@@ -64,26 +66,41 @@ async def _handle(ws, embedder: Embedder, embed_lock: asyncio.Lock) -> None:
             elif kind == "track":
                 if msg.get("title"):
                     log.info("now playing: %s – %s", msg.get("artist"), msg.get("title"))
-                result = await run(session.on_track, msg["videoId"], msg.get("title") or msg["videoId"],
-                                   msg.get("artist"), msg.get("duration"),
-                                   msg.get("source", "ytmusic"), float(msg.get("position") or 0))
+                result = await run(
+                    session.on_track,
+                    msg["videoId"],
+                    msg.get("title") or msg["videoId"],
+                    msg.get("artist"),
+                    msg.get("duration"),
+                    msg.get("source", "ytmusic"),
+                    float(msg.get("position") or 0),
+                )
                 if result:
                     log.info("finished %s", _describe(result))
             elif kind == "meta":
                 if session.on_meta(msg["videoId"], msg.get("title"), msg.get("artist")):
                     log.info("now playing: %s – %s", msg.get("artist"), msg.get("title"))
             elif kind == "state":
-                session.on_state(bool(msg["playing"]), float(msg.get("position") or 0),
-                                 msg.get("volume"), msg.get("duration"))
+                session.on_state(
+                    bool(msg["playing"]),
+                    float(msg.get("position") or 0),
+                    msg.get("volume"),
+                    msg.get("duration"),
+                )
             elif kind == "seek":
                 session.on_seek(float(msg["position"]))
             elif kind == "ad":
                 session.on_ad(bool(msg["active"]))
                 log.info("ad %s", "started" if msg["active"] else "ended")
             elif kind == "feedback" and msg.get("kind") in FEEDBACK_KINDS:
-                await asyncio.to_thread(record_feedback, msg["videoId"], msg["kind"],
-                                        msg.get("title"), msg.get("artist"),
-                                        msg.get("source", "ytmusic"))
+                await asyncio.to_thread(
+                    record_feedback,
+                    msg["videoId"],
+                    msg["kind"],
+                    msg.get("title"),
+                    msg.get("artist"),
+                    msg.get("source", "ytmusic"),
+                )
                 log.info("%s: %s", msg["kind"], msg.get("title"))
             elif kind == "end":
                 result = await run(session.finish, msg.get("reason", "closed"))
@@ -111,7 +128,12 @@ async def serve_forever(host: str, port: int) -> None:
     embedder = Embedder()
     embed_lock = asyncio.Lock()
     log.info("model %s ready on %s", embedder.model_id, embedder.device)
-    async with serve(lambda ws: _handle(ws, embedder, embed_lock), host, port,
-                     max_size=2**24, process_request=_only_extensions):
+    async with serve(
+        lambda ws: _handle(ws, embedder, embed_lock),
+        host,
+        port,
+        max_size=2**24,
+        process_request=_only_extensions,
+    ):
         log.info("listening on ws://%s:%d", host, port)
         await asyncio.Future()

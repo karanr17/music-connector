@@ -18,8 +18,18 @@ def connect():
         yield conn
 
 
-def upsert_song(conn, *, title, artist=None, youtube_id=None, local_path=None,
-                release_year=None, pools=(), source, duration_s=None) -> int:
+def upsert_song(
+    conn,
+    *,
+    title,
+    artist=None,
+    youtube_id=None,
+    local_path=None,
+    release_year=None,
+    pools=(),
+    source,
+    duration_s=None,
+) -> int:
     """Insert a song or return the existing row's id (matched on youtube_id or local_path)."""
     key_col, key_val = ("youtube_id", youtube_id) if youtube_id else ("local_path", local_path)
     if key_val is None:
@@ -34,19 +44,30 @@ def upsert_song(conn, *, title, artist=None, youtube_id=None, local_path=None,
     ).fetchone()[0]
 
 
-def refresh_song_meta(conn, song_id: int, title: str | None, artist: str | None,
-                      placeholder: str | None = None) -> None:
+def refresh_song_meta(
+    conn, song_id: int, title: str | None, artist: str | None, placeholder: str | None = None
+) -> None:
     """Overwrite title/artist with what the player reports now; a placeholder title (the bare
     video id used when no title was known) never replaces a real one."""
     if not title or title == placeholder:
         return
-    conn.execute("UPDATE songs SET title = %s, artist = COALESCE(%s, artist) WHERE id = %s",
-                 (title, artist, song_id))
+    conn.execute(
+        "UPDATE songs SET title = %s, artist = COALESCE(%s, artist) WHERE id = %s", (title, artist, song_id)
+    )
 
 
-def store_embedding(conn, song_id: int, *, song_vec: np.ndarray, spread: float, coverage: float,
-                    window_starts: list[float], window_vecs: np.ndarray, model: str,
-                    duration_s: float | None = None) -> None:
+def store_embedding(
+    conn,
+    song_id: int,
+    *,
+    song_vec: np.ndarray,
+    spread: float,
+    coverage: float,
+    window_starts: list[float],
+    window_vecs: np.ndarray,
+    model: str,
+    duration_s: float | None = None,
+) -> None:
     conn.execute(
         """UPDATE songs SET embedding = %s, embedding_spread = %s, coverage = %s,
                   embedding_model = %s, duration_s = COALESCE(%s, duration_s)

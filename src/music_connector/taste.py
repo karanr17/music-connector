@@ -23,8 +23,7 @@ class TasteCluster:
     member_ids: list[int]
 
 
-def song_weights(conn, half_life_days: float, weights: EventWeights = EventWeights()
-                 ) -> dict[int, float]:
+def song_weights(conn, half_life_days: float, weights: EventWeights = EventWeights()) -> dict[int, float]:
     """Net taste evidence per song: event weights × exponential recency decay, summed."""
     rows = conn.execute(
         "SELECT song_id, kind, extract(epoch FROM now() - at) / 86400.0 FROM events"
@@ -46,8 +45,7 @@ def _embeddings(conn, ids) -> tuple[list[int], list[str], np.ndarray]:
     return [r[0] for r in rows], [r[1] for r in rows], np.stack([as_array(r[2]) for r in rows])
 
 
-def build(conn, cfg: RecommendConfig = RecommendConfig()
-          ) -> tuple[list[TasteCluster], np.ndarray]:
+def build(conn, cfg: RecommendConfig = RecommendConfig()) -> tuple[list[TasteCluster], np.ndarray]:
     """Returns (taste clusters sorted by importance, disliked-song vectors)."""
     weights = song_weights(conn, cfg.recency_half_life_days)
     liked = {i: w for i, w in weights.items() if w > 0}
@@ -59,8 +57,11 @@ def build(conn, cfg: RecommendConfig = RecommendConfig()
         return [], dis_vecs
 
     w = np.array([liked[i] for i in ids])
-    labels = (np.ones(len(ids), dtype=int) if len(ids) == 1 else
-              fcluster(linkage(X, method="ward"), t=cfg.cluster_distance, criterion="distance"))
+    labels = (
+        np.ones(len(ids), dtype=int)
+        if len(ids) == 1
+        else fcluster(linkage(X, method="ward"), t=cfg.cluster_distance, criterion="distance")
+    )
 
     clusters = []
     for label in np.unique(labels):
@@ -68,7 +69,6 @@ def build(conn, cfg: RecommendConfig = RecommendConfig()
         sims = X[idx] @ X[idx].T
         # Weighted medoid: the member closest to the others, counting stronger likes more.
         m = idx[np.argmax(sims @ w[idx])]
-        clusters.append(TasteCluster(ids[m], titles[m], X[m], float(w[idx].sum()),
-                                     [ids[i] for i in idx]))
+        clusters.append(TasteCluster(ids[m], titles[m], X[m], float(w[idx].sum()), [ids[i] for i in idx]))
     clusters.sort(key=lambda c: c.importance, reverse=True)
     return clusters, dis_vecs

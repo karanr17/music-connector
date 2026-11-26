@@ -26,7 +26,7 @@ CHUNK = SR // 10
 async def stream(ws, wav: np.ndarray, start_s: float, seconds: float, gain: float = 1.0):
     a, b = int(start_s * SR), int(min((start_s + seconds) * SR, len(wav)))
     for i in range(a, b, CHUNK):
-        await ws.send((wav[i:min(i + CHUNK, b)] * gain).astype(np.float32).tobytes())
+        await ws.send((wav[i : min(i + CHUNK, b)] * gain).astype(np.float32).tobytes())
 
 
 async def send(ws, **msg):
@@ -40,33 +40,63 @@ async def run(url: str, files: list[str]) -> None:
     async with connect(url, max_size=2**24) as ws:
         await send(ws, type="hello", sampleRate=SR)
 
-        await send(ws, type="track", videoId="SIM-1", title="sim full listen", artist="sim",
-                   duration=None, position=0, source="ytmusic")
+        await send(
+            ws,
+            type="track",
+            videoId="SIM-1",
+            title="sim full listen",
+            artist="sim",
+            duration=None,
+            position=0,
+            source="ytmusic",
+        )
         await send(ws, type="state", playing=True, position=0, volume=0.5, duration=dur[0])
         await stream(ws, full, 0, dur[0], gain=0.5)
         await send(ws, type="end", reason="ended")
 
-        await send(ws, type="track", videoId="SIM-2", title="sim skipped", artist="sim",
-                   duration=dur[1], position=0, source="ytmusic")
+        await send(
+            ws,
+            type="track",
+            videoId="SIM-2",
+            title="sim skipped",
+            artist="sim",
+            duration=dur[1],
+            position=0,
+            source="ytmusic",
+        )
         await send(ws, type="state", playing=True, position=0, volume=1.0, duration=dur[1])
         await stream(ws, skipped, 0, 20)
 
-        await send(ws, type="track", videoId="SIM-3", title="sim partial", artist="sim",
-                   duration=dur[2], position=0, source="youtube")
+        await send(
+            ws,
+            type="track",
+            videoId="SIM-3",
+            title="sim partial",
+            artist="sim",
+            duration=dur[2],
+            position=0,
+            source="youtube",
+        )
         await send(ws, type="state", playing=True, position=0, volume=1.0, duration=dur[2])
         await stream(ws, partial, 0, 60)
         await send(ws, type="seek", position=120)
         await stream(ws, partial, 120, 40)
         await send(ws, type="ad", active=True)
-        await ws.send((np.random.default_rng(0).standard_normal(SR * 15) * 0.3)
-                      .astype(np.float32).tobytes())
+        await ws.send((np.random.default_rng(0).standard_normal(SR * 15) * 0.3).astype(np.float32).tobytes())
         await send(ws, type="ad", active=False)
         await send(ws, type="state", playing=False, position=160, volume=1.0)
         await ws.send(np.zeros(SR * 5, dtype=np.float32).tobytes())
         await send(ws, type="state", playing=True, position=160, volume=1.0)
         await stream(ws, partial, 160, 25)
-        await send(ws, type="feedback", videoId="SIM-3", kind="like", title="sim partial",
-                   artist="sim", source="youtube")
+        await send(
+            ws,
+            type="feedback",
+            videoId="SIM-3",
+            kind="like",
+            title="sim partial",
+            artist="sim",
+            source="youtube",
+        )
         # Give the server time to embed queued windows before the socket closes.
         await asyncio.sleep(1)
 

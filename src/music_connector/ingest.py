@@ -74,13 +74,27 @@ def _embed_all(conn, embedder: Embedder, files: list[Path], pools: list[str], fo
                 progress.advance(task)
                 continue
             emb = embedder.embed_wav(wav)
-            song_id = row[0] if row else db.upsert_song(
-                conn, **_tags(path), local_path=local_path, pools=pools, source="local",
+            song_id = (
+                row[0]
+                if row
+                else db.upsert_song(
+                    conn,
+                    **_tags(path),
+                    local_path=local_path,
+                    pools=pools,
+                    source="local",
+                )
             )
             db.store_embedding(
-                conn, song_id, song_vec=emb.song_vec, spread=emb.spread, coverage=1.0,
-                window_starts=emb.window_starts, window_vecs=emb.window_vecs,
-                model=embedder.model_id, duration_s=emb.duration_s,
+                conn,
+                song_id,
+                song_vec=emb.song_vec,
+                spread=emb.spread,
+                coverage=1.0,
+                window_starts=emb.window_starts,
+                window_vecs=emb.window_vecs,
+                model=embedder.model_id,
+                duration_s=emb.duration_s,
             )
             conn.commit()
             done += 1

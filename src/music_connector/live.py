@@ -64,8 +64,15 @@ class ListenSession:
 
     # -- events ---------------------------------------------------------------------------
 
-    def on_track(self, video_id: str, title: str, artist: str | None, duration_s: float | None,
-                 source: str, position: float = 0.0) -> TrackResult | None:
+    def on_track(
+        self,
+        video_id: str,
+        title: str,
+        artist: str | None,
+        duration_s: float | None,
+        source: str,
+        position: float = 0.0,
+    ) -> TrackResult | None:
         """A new track started. Returns the result of finalising the previous one, if any."""
         if self.track and self.track.video_id == video_id:
             self.on_seek(position)
@@ -83,8 +90,9 @@ class ListenSession:
         self.track.artist = artist or self.track.artist
         return True
 
-    def on_state(self, playing: bool, position: float, volume: float | None = None,
-                 duration_s: float | None = None) -> None:
+    def on_state(
+        self, playing: bool, position: float, volume: float | None = None, duration_s: float | None = None
+    ) -> None:
         if volume is not None:
             self.volume = volume
         # YouTube often reports the duration only after the track has started.
@@ -110,7 +118,7 @@ class ListenSession:
         self._buf = np.concatenate([self._buf, pcm.astype(np.float32) / self.volume])
         ready = []
         while len(self._buf) >= self.window_in:
-            raw, self._buf = self._buf[: self.window_in], self._buf[self.window_in:]
+            raw, self._buf = self._buf[: self.window_in], self._buf[self.window_in :]
             start = self._buf_pos
             self._buf_pos += WINDOW_S
             self._last_window = raw
@@ -152,7 +160,7 @@ class ListenSession:
             return None
         if len(self._buf) < MIN_TAIL_S * self.sr_in:
             return None
-        raw = np.concatenate([self._last_window, self._buf])[-self.window_in:]
+        raw = np.concatenate([self._last_window, self._buf])[-self.window_in :]
         if np.sqrt(np.mean(raw**2)) < SILENCE_RMS:
             return None
         return self._resample(raw)
@@ -174,16 +182,23 @@ def _event_for(track: Track, reason: str) -> str | None:
 
 def _store(track: Track, n_windows: int, model_id: str, reason: str) -> TrackResult:
     event = _event_for(track, reason)
-    coverage = (min(track.listened_s / track.duration_s, 1.0) if track.duration_s else None)
+    coverage = min(track.listened_s / track.duration_s, 1.0) if track.duration_s else None
     stored = False
     with db.connect() as conn:
-        song_id = db.upsert_song(conn, title=track.title, artist=track.artist,
-                                 youtube_id=track.video_id, source=track.source,
-                                 duration_s=track.duration_s)
+        song_id = db.upsert_song(
+            conn,
+            title=track.title,
+            artist=track.artist,
+            youtube_id=track.video_id,
+            source=track.source,
+            duration_s=track.duration_s,
+        )
         # The row may predate this listen (e.g. created by a like) without a duration, or with
         # a placeholder or stale title from before the player had this track's metadata.
-        conn.execute("UPDATE songs SET duration_s = COALESCE(%s, duration_s) WHERE id = %s",
-                     (track.duration_s, song_id))
+        conn.execute(
+            "UPDATE songs SET duration_s = COALESCE(%s, duration_s) WHERE id = %s",
+            (track.duration_s, song_id),
+        )
         db.refresh_song_meta(conn, song_id, track.title, track.artist, track.video_id)
         if n_windows:
             existing = conn.execute(
@@ -194,8 +209,14 @@ def _store(track: Track, n_windows: int, model_id: str, reason: str) -> TrackRes
                 vecs = np.stack(track.window_vecs[:n_windows])
                 song_vec, spread = pool(vecs)
                 db.store_embedding(
-                    conn, song_id, song_vec=song_vec, spread=spread, coverage=coverage or 0.0,
-                    window_starts=track.window_starts[:n_windows], window_vecs=vecs, model=model_id,
+                    conn,
+                    song_id,
+                    song_vec=song_vec,
+                    spread=spread,
+                    coverage=coverage or 0.0,
+                    window_starts=track.window_starts[:n_windows],
+                    window_vecs=vecs,
+                    model=model_id,
                 )
                 stored = True
         if event == "complete":
@@ -207,15 +228,14 @@ def _store(track: Track, n_windows: int, model_id: str, reason: str) -> TrackRes
         if event:
             db.add_event(conn, song_id, event, source="extension")
         conn.commit()
-    return TrackResult(track.video_id, track.title, n_windows, track.listened_s, coverage,
-                       event, stored)
+    return TrackResult(track.video_id, track.title, n_windows, track.listened_s, coverage, event, stored)
 
 
-def record_feedback(video_id: str, kind: str, title: str | None, artist: str | None,
-                    source: str) -> None:
+def record_feedback(video_id: str, kind: str, title: str | None, artist: str | None, source: str) -> None:
     with db.connect() as conn:
-        song_id = db.upsert_song(conn, title=title or video_id, artist=artist,
-                                 youtube_id=video_id, source=source)
+        song_id = db.upsert_song(
+            conn, title=title or video_id, artist=artist, youtube_id=video_id, source=source
+        )
         db.refresh_song_meta(conn, song_id, title, artist, video_id)
         db.add_event(conn, song_id, kind, source="extension")
         conn.commit()

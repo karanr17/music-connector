@@ -50,7 +50,7 @@ class Embedder:
         """
         out = []
         for i in range(0, len(wins), self.batch_size):
-            batch = torch.from_numpy(wins[i:i + self.batch_size]).to(self.device)
+            batch = torch.from_numpy(wins[i : i + self.batch_size]).to(self.device)
             out.append(self.model.mulan_module.get_audio_latents(batch).float().cpu())
         return torch.cat(out).numpy()
 

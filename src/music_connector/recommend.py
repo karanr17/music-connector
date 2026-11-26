@@ -48,20 +48,24 @@ def _rows_to_candidates(rows) -> list[Candidate]:
 def _nearest(conn, vec, exclude, limit, pool: str | None = None) -> list[Candidate]:
     pool_sql = "AND %s = ANY(pools)" if pool else ""
     params = [list(exclude)] + ([pool] if pool else []) + [vec, limit]
-    return _rows_to_candidates(conn.execute(
-        f"""SELECT {SONG_COLS} FROM songs
+    return _rows_to_candidates(
+        conn.execute(
+            f"""SELECT {SONG_COLS} FROM songs
             WHERE embedding IS NOT NULL AND NOT (id = ANY(%s)) {pool_sql}
             ORDER BY embedding <=> %s LIMIT %s""",
-        params,
-    ).fetchall())
+            params,
+        ).fetchall()
+    )
 
 
 def _random(conn, exclude, limit) -> list[Candidate]:
-    return _rows_to_candidates(conn.execute(
-        f"""SELECT {SONG_COLS} FROM songs
+    return _rows_to_candidates(
+        conn.execute(
+            f"""SELECT {SONG_COLS} FROM songs
             WHERE embedding IS NOT NULL AND NOT (id = ANY(%s)) ORDER BY random() LIMIT %s""",
-        (list(exclude), limit),
-    ).fetchall())
+            (list(exclude), limit),
+        ).fetchall()
+    )
 
 
 def _excluded_vecs(conn, exclude) -> np.ndarray:
@@ -71,8 +75,7 @@ def _excluded_vecs(conn, exclude) -> np.ndarray:
     return np.stack([as_array(r[0]) for r in rows]) if rows else np.empty((0, 0), dtype=np.float32)
 
 
-def _drop_duplicates(group: list[Candidate], avoid: np.ndarray, cfg: RecommendConfig
-                     ) -> list[Candidate]:
+def _drop_duplicates(group: list[Candidate], avoid: np.ndarray, cfg: RecommendConfig) -> list[Candidate]:
     if not group or not avoid.size:
         return group
     sims = np.stack([c.vec for c in group]) @ avoid.T
@@ -102,8 +105,9 @@ def _allocate(total: int, shares: dict[str, float]) -> dict[str, int]:
     return alloc
 
 
-def _mmr_fill(group: list[Candidate], quota: int, slot: str, picks: list[Pick],
-              artists: Counter, cfg: RecommendConfig) -> int:
+def _mmr_fill(
+    group: list[Candidate], quota: int, slot: str, picks: list[Pick], artists: Counter, cfg: RecommendConfig
+) -> int:
     """Greedy maximal-marginal-relevance selection. Returns how many slots went unfilled."""
     taken = {p.candidate.id for p in picks}
     pool = {c.id: c for c in group if c.id not in taken}
@@ -141,8 +145,9 @@ def _smooth_order(picks: list[Pick]) -> list[Pick]:
     return order
 
 
-def build_playlist(conn, cfg: RecommendConfig = RecommendConfig()
-                   ) -> tuple[list[Pick], list[taste.TasteCluster]]:
+def build_playlist(
+    conn, cfg: RecommendConfig = RecommendConfig()
+) -> tuple[list[Pick], list[taste.TasteCluster]]:
     clusters, dis_vecs = taste.build(conn, cfg)
     if not clusters:
         raise LookupError(
@@ -159,12 +164,12 @@ def build_playlist(conn, cfg: RecommendConfig = RecommendConfig()
     artists: Counter = Counter()
     shortfall = 0
 
-    per_cluster = _allocate(quotas.pop("taste", 0),
-                            {str(i): k.importance for i, k in enumerate(clusters)})
+    per_cluster = _allocate(quotas.pop("taste", 0), {str(i): k.importance for i, k in enumerate(clusters)})
     taste_pool: list[Candidate] = []
     for i, k in enumerate(clusters):
         group = _drop_duplicates(
-            _nearest(conn, k.medoid_vec, exclude, cfg.neighbours_per_cluster), avoid, cfg)
+            _nearest(conn, k.medoid_vec, exclude, cfg.neighbours_per_cluster), avoid, cfg
+        )
         _score(group, clusters, dis_vecs, cfg)
         taste_pool += group
         shortfall += _mmr_fill(group, per_cluster[str(i)], "taste", picks, artists, cfg)

@@ -62,7 +62,7 @@ Tests need neither the model nor the database:
 
 ```sh
 uv run pytest
-uv run ruff check .
+uv run ruff check . && uv run ruff format --check .
 ```
 
 ## Usage
