@@ -1,5 +1,11 @@
 # music-connector
 
+**[Live demo](https://karanr17.github.io/visual-music-player/)** of the
+[visual music player](https://github.com/karanr17/visual-music-player) this project hears music
+for (its beats, sections and descriptors come from `mc analyze`) · **[How the two fit together](https://karanr17.github.io/visual-music-player/about/)**
+
+[![Three CC BY songs in the visual music player, analysed by music-connector](https://karanr17.github.io/visual-music-player/hero.gif)](https://karanr17.github.io/visual-music-player/hero.mp4)
+
 A personal music recommender that runs on your Mac. Full songs are embedded with
 [MuQ-MuLan](https://huggingface.co/OpenMuQ/MuQ-MuLan-large) and stored in Postgres + pgvector.
 Playlists are built from your taste clusters plus exploration slots for indie, older and random music.
